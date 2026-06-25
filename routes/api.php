@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\MemberController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -27,6 +28,12 @@ Route::prefix('v1')->group(function () {
     Route::prefix('auth')->middleware('auth:sanctum')->group(function () {
         Route::post('logout', [AuthController::class, 'logout']);
         Route::get('me',      [AuthController::class, 'me']);
+    });
+
+    // ── Members (Protected) ───────────────────────────────────────────────
+    Route::prefix('members')->middleware('auth:sanctum')->group(function () {
+        Route::get('search', [MemberController::class, 'searchByPin']);
+        Route::get('qr',     [MemberController::class, 'searchByQR']);
     });
 
 });
