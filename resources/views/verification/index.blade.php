@@ -90,13 +90,37 @@
                             <td style="padding:16px 10px; width:250px;">
                                 <div style="display:flex; flex-wrap:wrap; gap:8px;">
                                     @if ($document?->front_file_url)
-                                        <a href="{{ route('verification.files.show', ['verification' => $verification->id, 'asset' => 'front']) }}" style="background:rgba(59,130,246,0.15); color:#93c5fd; border:1px solid rgba(59,130,246,0.45); font-size:11px; padding:5px 10px; border-radius:999px; text-decoration:none;">View ID Front</a>
+                                        <button
+                                            type="button"
+                                            class="preview-trigger"
+                                            data-preview-url="{{ route('verification.files.show', ['verification' => $verification->id, 'asset' => 'front']) }}"
+                                            data-preview-title="ID Front · {{ $user?->display_name ?? 'SAFEE User' }}"
+                                            style="background:rgba(59,130,246,0.15); color:#93c5fd; border:1px solid rgba(59,130,246,0.45); font-size:11px; padding:5px 10px; border-radius:999px; cursor:pointer;"
+                                        >
+                                            View ID Front
+                                        </button>
                                     @endif
                                     @if ($document?->back_file_url)
-                                        <a href="{{ route('verification.files.show', ['verification' => $verification->id, 'asset' => 'back']) }}" style="background:rgba(59,130,246,0.15); color:#93c5fd; border:1px solid rgba(59,130,246,0.45); font-size:11px; padding:5px 10px; border-radius:999px; text-decoration:none;">View ID Back</a>
+                                        <button
+                                            type="button"
+                                            class="preview-trigger"
+                                            data-preview-url="{{ route('verification.files.show', ['verification' => $verification->id, 'asset' => 'back']) }}"
+                                            data-preview-title="ID Back · {{ $user?->display_name ?? 'SAFEE User' }}"
+                                            style="background:rgba(59,130,246,0.15); color:#93c5fd; border:1px solid rgba(59,130,246,0.45); font-size:11px; padding:5px 10px; border-radius:999px; cursor:pointer;"
+                                        >
+                                            View ID Back
+                                        </button>
                                     @endif
                                     @if ($selfie?->selfie_file_url)
-                                        <a href="{{ route('verification.files.show', ['verification' => $verification->id, 'asset' => 'selfie']) }}" style="background:rgba(34,197,94,0.15); color:#86efac; border:1px solid rgba(34,197,94,0.45); font-size:11px; padding:5px 10px; border-radius:999px; text-decoration:none;">View Selfie</a>
+                                        <button
+                                            type="button"
+                                            class="preview-trigger"
+                                            data-preview-url="{{ route('verification.files.show', ['verification' => $verification->id, 'asset' => 'selfie']) }}"
+                                            data-preview-title="Selfie · {{ $user?->display_name ?? 'SAFEE User' }}"
+                                            style="background:rgba(34,197,94,0.15); color:#86efac; border:1px solid rgba(34,197,94,0.45); font-size:11px; padding:5px 10px; border-radius:999px; cursor:pointer;"
+                                        >
+                                            View Selfie
+                                        </button>
                                     @endif
                                 </div>
                                 <div style="font-size:11px; color:#6b7280; margin-top:8px;">
@@ -137,4 +161,68 @@
         @endif
     </div>
 </div>
+
+<div
+    id="verification-preview-modal"
+    style="display:none; position:fixed; inset:0; background:rgba(2,6,23,0.92); z-index:9999; align-items:center; justify-content:center; padding:24px;"
+>
+    <button
+        type="button"
+        id="verification-preview-close"
+        aria-label="Close preview"
+        style="position:absolute; top:18px; right:18px; width:42px; height:42px; border:none; border-radius:999px; background:rgba(255,255,255,0.12); color:#fff; font-size:22px; cursor:pointer;"
+    >
+        ×
+    </button>
+    <div style="width:100%; max-width:1200px; max-height:100%; display:flex; flex-direction:column; gap:14px;">
+        <div id="verification-preview-title" style="color:#fff; font-size:16px; font-weight:600;"></div>
+        <div style="flex:1; min-height:0; display:flex; align-items:center; justify-content:center;">
+            <img
+                id="verification-preview-image"
+                src=""
+                alt="Verification preview"
+                style="max-width:100%; max-height:78vh; border-radius:18px; box-shadow:0 20px 60px rgba(0,0,0,0.45); background:#111827;"
+            >
+        </div>
+    </div>
+</div>
+
+<script>
+    (() => {
+        const modal = document.getElementById('verification-preview-modal');
+        const image = document.getElementById('verification-preview-image');
+        const title = document.getElementById('verification-preview-title');
+        const closeButton = document.getElementById('verification-preview-close');
+        const triggers = document.querySelectorAll('.preview-trigger');
+
+        const closeModal = () => {
+            modal.style.display = 'none';
+            image.src = '';
+            title.textContent = '';
+            document.body.style.overflow = '';
+        };
+
+        triggers.forEach((trigger) => {
+            trigger.addEventListener('click', () => {
+                image.src = trigger.dataset.previewUrl;
+                title.textContent = trigger.dataset.previewTitle || 'Image Preview';
+                modal.style.display = 'flex';
+                document.body.style.overflow = 'hidden';
+            });
+        });
+
+        closeButton.addEventListener('click', closeModal);
+        modal.addEventListener('click', (event) => {
+            if (event.target === modal) {
+                closeModal();
+            }
+        });
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && modal.style.display === 'flex') {
+                closeModal();
+            }
+        });
+    })();
+</script>
 @endsection

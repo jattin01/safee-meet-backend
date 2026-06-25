@@ -6,7 +6,6 @@ use App\Http\Requests\Verification\RejectIdentityVerificationRequest;
 use App\Models\IdentityVerification;
 use App\Services\Verification\IdentityVerificationService;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -49,6 +48,14 @@ class VerificationController extends Controller
         $path = $this->verificationService->verificationAssetPath($verification, $asset);
         abort_if(!$path, 404);
 
-        return Storage::disk(config('filesystems.default'))->download($path);
+        $disk = Storage::disk(config('filesystems.default'));
+        $mimeType = $disk->mimeType($path) ?? 'application/octet-stream';
+        $filename = basename($path);
+
+        return $disk->response($path, $filename, [
+            'Content-Type' => $mimeType,
+            'Content-Disposition' => 'inline; filename="'.$filename.'"',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
     }
 }
