@@ -15,6 +15,7 @@ class RegisterRequest extends FormRequest
     {
         return [
             'name'            => ['nullable', 'string', 'max:150'],
+            'email'           => ['nullable', 'email', 'max:200'],
             'provider'        => ['required', 'string', 'in:google,apple,phone,email'],
             'providerToken'   => ['required', 'string', 'min:10'],
             'consentAccepted' => ['required', 'boolean', 'accepted'],
