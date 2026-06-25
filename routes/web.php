@@ -15,6 +15,13 @@ Route::get('/dashboard', function () {
 
 Route::get('/users', [UserController::class, 'index'])->name('users');
 Route::get('/verification', [VerificationController::class, 'index'])->name('verification');
+Route::get('/verification/{verification}/{asset}', [VerificationController::class, 'showAsset'])
+    ->whereIn('asset', ['front', 'back', 'selfie'])
+    ->name('verification.files.show');
+Route::post('/verification/{verification}/approve', [VerificationController::class, 'approve'])
+    ->name('verification.approve');
+Route::post('/verification/{verification}/reject', [VerificationController::class, 'reject'])
+    ->name('verification.reject');
 Route::get('/orders', [OrderController::class, 'index'])->name('orders');
 Route::get('/subscription', [SubscriptionsController::class, 'index'])->name('subscription');
 Route::get('/incidents', [IncidentsController::class, 'index'])->name('incidents');

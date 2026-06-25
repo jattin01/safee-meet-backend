@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Support\Verification\VerificationLevelResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -88,7 +89,7 @@ class MemberController extends Controller
             'safeePIN'          => $user->safee_id,
             'avatarUrl'         => $user->avatar_url,
             'trustScore'        => (int) ($user->trust_score ?? 0),
-            'verificationLevel' => $user->trust_tier ?? 'low',
+            'verificationLevel' => VerificationLevelResolver::fromUser($user->kyc_status, $user->trust_tier),
             'subscriptionPlan'  => 'free',
             'rating'            => 0.0,
             'totalMeetings'     => 0,

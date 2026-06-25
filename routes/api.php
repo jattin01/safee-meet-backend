@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\Api\VerificationApiController;
 use App\Http\Controllers\MemberController;
 use Illuminate\Support\Facades\Route;
 
@@ -34,6 +35,14 @@ Route::prefix('v1')->group(function () {
     Route::prefix('members')->middleware('auth:sanctum')->group(function () {
         Route::get('search', [MemberController::class, 'searchByPin']);
         Route::get('qr',     [MemberController::class, 'searchByQR']);
+    });
+
+    // ── Verification (Protected) ───────────────────────────────────────────
+    Route::prefix('verification')->middleware('auth:sanctum')->group(function () {
+        Route::get('status', [VerificationApiController::class, 'status']);
+        Route::get('progress', [VerificationApiController::class, 'progress']);
+        Route::post('id', [VerificationApiController::class, 'uploadId']);
+        Route::post('selfie', [VerificationApiController::class, 'uploadSelfie']);
     });
 
 });

@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Auth;
 
+use App\Support\Verification\VerificationLevelResolver;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -20,7 +21,7 @@ class UserResource extends JsonResource
             'onboardingStatus'   => $this->onboarding_status,
             'kycStatus'          => $this->kyc_status,
             'trustScore'         => $this->trust_score,
-            'trustTier'          => $this->trust_tier,
+            'trustTier'          => VerificationLevelResolver::fromUser($this->kyc_status, $this->trust_tier),
             'isChatEnabled'      => $this->is_chat_enabled,
             'isMeetingEnabled'   => $this->is_meeting_enabled,
             'isSosEnabled'       => $this->is_sos_enabled,
