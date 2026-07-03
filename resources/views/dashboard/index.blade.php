@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Dashboard')
+@section('title', trim($__env->yieldContent('dashboard-role', 'Admin')).' Dashboard')
 
 @section('styles')
 <style>
@@ -112,7 +112,9 @@
 <div class="dashboard-shell space-y-6">
   <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
     <div>
-      <h1 class="dashboard-title text-[22px] font-semibold tracking-normal">Good Morning, Admin!</h1>
+      <h1 class="dashboard-title text-[22px] font-semibold tracking-normal">
+        Good Morning, @yield('dashboard-role', 'Admin')!
+      </h1>
       <p class="dashboard-muted mt-1 text-sm">Here is what is happening with SafeeMeet today.</p>
     </div>
 

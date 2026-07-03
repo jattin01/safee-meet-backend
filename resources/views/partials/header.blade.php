@@ -1,3 +1,8 @@
+@php
+  $currentAdmin = auth('admin')->user();
+  $adminInitial = strtoupper(substr($currentAdmin?->name ?? 'A', 0, 1));
+@endphp
+
 <header class="sticky top-0 z-20 border-b border-[#1a1a1a] bg-[#000] px-6 py-3 backdrop-blur">
   <div class="flex items-center gap-4">
     <button id="navToggle" class="grid h-9 w-9 place-items-center rounded-md border border-[#1a1a1a] bg-[#1a1a1a] text-[#8f98ad] transition hover:text-white" aria-label="Toggle navigation" aria-controls="sidebar">
@@ -27,10 +32,10 @@
       </button>
 
       <div class="ml-2 flex items-center gap-3 border-l border-[#252b3b] pl-4">
-        <div class="grid h-9 w-9 place-items-center rounded-md bg-[#DC131C] text-sm font-bold text-white">H</div>
+        <div class="grid h-9 w-9 place-items-center rounded-md bg-[#DC131C] text-sm font-bold text-white">{{ $adminInitial }}</div>
         <div class="hidden leading-tight sm:block">
-          <p class="text-sm font-semibold text-white">Hari</p>
-          <p class="text-xs text-[#8f98ad]">Admin</p>
+          <p class="text-sm font-semibold text-white">{{ $currentAdmin?->name ?? 'Admin' }}</p>
+          <p class="text-xs text-[#8f98ad]">{{ $currentAdmin?->role?->name ?? 'Admin' }}</p>
         </div>
       </div>
     </div>

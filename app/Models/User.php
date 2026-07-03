@@ -12,14 +12,29 @@ class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
 
-    protected $keyType = 'string';
-    public $incrementing = false;
-
     protected $fillable = [
-        'id',
+        'name',
+        'email',
+        'password',
+        'phone',
+        'phone_verified_at',
+        'role',
+        'verification_level',
+        'badge',
+        'subscription_plan',
+        'subscription_status',
+        'safee_pin',
+        'dob',
+        'address',
+        'id_number',
+        'trust_score',
+        'rating',
+        'account_type',
+        'company_name',
+        'employer_code',
+        'job_title',
         'firebase_uid',
         'safee_id',
-        'account_type',
         'auth_provider',
         'display_name',
         'avatar_url',
@@ -44,6 +59,9 @@ class User extends Authenticatable
     ];
 
     protected $hidden = [
+        'password',
+        'remember_token',
+        'otp_code',
         'email_encrypted',
         'phone_encrypted',
     ];
@@ -51,15 +69,16 @@ class User extends Authenticatable
     protected function casts(): array
     {
         return [
-            'is_chat_enabled'    => 'boolean',
+            'is_chat_enabled' => 'boolean',
             'is_meeting_enabled' => 'boolean',
-            'is_sos_enabled'     => 'boolean',
-            'trust_score'        => 'integer',
-            'email_verified_at'  => 'datetime',
-            'phone_verified_at'  => 'datetime',
-            'last_login_at'      => 'datetime',
-            'last_seen_at'       => 'datetime',
-            'deleted_at'         => 'datetime',
+            'is_sos_enabled' => 'boolean',
+            'trust_score' => 'integer',
+            'dob' => 'date',
+            'email_verified_at' => 'datetime',
+            'phone_verified_at' => 'datetime',
+            'last_login_at' => 'datetime',
+            'last_seen_at' => 'datetime',
+            'deleted_at' => 'datetime',
         ];
     }
 
@@ -122,7 +141,7 @@ class User extends Authenticatable
 
     public function meetings()
     {
-        return $this->hasMany(Meeting::class, 'creator_user_id');
+        return $this->hasMany(Meeting::class, 'host_user_id');
     }
 
     public function emergencyContacts()
@@ -168,5 +187,14 @@ class User extends Authenticatable
     public function blockedUsers()
     {
         return $this->hasMany(BlockedUser::class, 'blocker_id');
+    }
+
+    public static function generateSafeePin(): string
+    {
+        do {
+            $pin = 'SM-'.random_int(100000, 999999);
+        } while (static::where('safee_pin', $pin)->exists());
+
+        return $pin;
     }
 }

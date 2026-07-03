@@ -1,3 +1,10 @@
+@php
+  $currentAdmin = auth('admin')->user();
+  $dashboardRoute = $currentAdmin?->role?->slug === 'super_admin'
+      ? 'super-admin.dashboard'
+      : 'admin.dashboard';
+@endphp
+
 <aside id="sidebar" class="z-30 flex flex-col border-r border-[#1a1a1a] bg-[#000] w-[250px] min-h-screen fixed left-0 top-0 transform transition-transform duration-300 md:translate-x-0 -translate-x-full">
   <div class="flex  items-center gap-3  border-[#252b3b] px-5">
     
@@ -9,9 +16,9 @@
   <nav class="flex-1 overflow-y-auto px-3 py-5">
    
 
-    <a href="{{ url('/dashboard') }}"
+    <a href="{{ route($dashboardRoute) }}"
        class="mb-1 flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition
-       {{ request()->is('dashboard') ? 'bg-[#DC131C] text-white' : 'text-[#8f98ad] hover:bg-[#1b2230] hover:text-white' }}">
+       {{ request()->is('dashboard') || request()->is('super-admin/dashboard') ? 'bg-[#DC131C] text-white' : 'text-[#8f98ad] hover:bg-[#1b2230] hover:text-white' }}">
       <i class="fa-solid fa-gauge-high w-4 text-center"></i>
       <span>Dashboard</span>
     </a>
@@ -21,6 +28,13 @@
        {{ request()->is('users*') ? 'bg-[#DC131C] text-white' : 'text-[#8f98ad] hover:bg-[#1b2230] hover:text-white' }}">
       <i class="fa-solid fa-users w-4 text-center"></i>
       <span>Users</span>
+    </a>
+
+    <a href="{{ route('admins.index') }}"
+       class="mb-1 flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition
+       {{ request()->is('admins*') ? 'bg-[#DC131C] text-white' : 'text-[#8f98ad] hover:bg-[#1b2230] hover:text-white' }}">
+      <i class="fa-solid fa-user-shield w-4 text-center"></i>
+      <span>Admins</span>
     </a>
 
     <a href="{{ url('/verification') }}"
