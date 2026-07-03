@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\ReviewController;
 use App\Http\Controllers\Api\VerificationApiController;
 use App\Http\Controllers\MemberController;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\SosController;
 
 /*
 |--------------------------------------------------------------------------
@@ -45,6 +46,12 @@ Route::prefix('v1')->group(function (): void {
         Route::get('/emergency-contact/{id}', [EmergencyContactController::class, 'index']);
         Route::post('/emergency-contact', [EmergencyContactController::class, 'store']);
         Route::delete('/emergency-contact/{id}', [EmergencyContactController::class, 'destroy']);
+
+         // SOS / Safety
+        Route::post('/sos/trigger', [SosController::class, 'trigger']);
+        Route::post('/sos/{incident}/resolve', [SosController::class, 'resolve']);
+        Route::post('/reports', [ReportController::class, 'store']);
+        Route::get('/reports', [ReportController::class, 'index']);
 
         Route::prefix('members')->group(function (): void {
             Route::get('search', [MemberController::class, 'searchByPin']);

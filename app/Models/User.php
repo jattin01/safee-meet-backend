@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use App\Models\EmergencyContact;
+
 
 class User extends Authenticatable
 {
@@ -144,9 +146,13 @@ class User extends Authenticatable
         return $this->hasMany(Meeting::class, 'host_user_id');
     }
 
+    // public function emergencyContacts()
+    // {
+    //     return $this->hasMany(EmergencyContact::class);
+    // }
     public function emergencyContacts()
     {
-        return $this->hasMany(EmergencyContact::class);
+        return $this->hasMany(EmergencyContact::class, 'user_id');
     }
 
     public function sosIncidents()
