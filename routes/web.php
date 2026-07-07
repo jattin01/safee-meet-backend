@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\IncidentsController;
 use App\Http\Controllers\OrderController;
+use App\Http\Controllers\TermsController;
 use App\Http\Controllers\RevenueController;
 use App\Http\Controllers\SubscriptionsController;
 use App\Http\Controllers\SuperAdmin\DashboardController as SuperAdminDashboardController;
@@ -42,6 +43,9 @@ Route::middleware('auth:admin')->group(function () {
     Route::get('/subscription', [SubscriptionsController::class, 'index'])->name('subscription');
     Route::get('/incidents', [IncidentsController::class, 'index'])->name('incidents');
     Route::get('/revenue', [RevenueController::class, 'index'])->name('revenue');
+    Route::get('/terms', [TermsController::class, 'index'])->name('terms.index');
+    Route::post('/terms', [TermsController::class, 'update'])->name('terms.update');
+
     Route::get('/dashboard', [AdminDashboardController::class, 'index'])
         ->middleware('role:admin')
         ->name('admin.dashboard');

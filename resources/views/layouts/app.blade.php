@@ -17,6 +17,33 @@
   <link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet">
   <!-- Quill JS -->
   <script src="https://cdn.quilljs.com/1.3.7/quill.min.js"></script>
+
+
+<style>
+   .ql-toolbar.ql-snow {
+        background-color: #1a1a1a;
+        border-color: #000 !important;
+    }
+    .ql-container.ql-snow {
+        background-color: #1a1a1a;
+        border-color: #000 !important;
+        color: #cdd9f0;
+        min-height: 200px;
+    }
+    .ql-snow .ql-stroke {
+        stroke: #8899aa !important;
+    }
+    .ql-snow .ql-fill {
+        fill: #8899aa !important;
+    }
+    .ql-editor.ql-blank::before {
+    color: #fff;
+}
+    .ql-snow .ql-picker {
+        color: #8899aa !important;
+    }
+    </style>
+
 </head>
 <body class="bg-black text-white antialiased" style="font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
 
