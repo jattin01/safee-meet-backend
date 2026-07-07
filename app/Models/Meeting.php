@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
 class Meeting extends Model
 {
@@ -13,6 +15,7 @@ class Meeting extends Model
 
     protected $fillable = [
         'reference', 'host_user_id', 'guest_user_id',
+        'title', 'scheduled_start_at', 'planned_address', 'planned_latitude', 'planned_longitude',
         'meeting_date', 'meeting_time', 'location', 'latitude', 'longitude',
         'purpose', 'item_or_service', 'type', 'status',
         'trust_score_snapshot', 'arrived_at',
@@ -22,6 +25,7 @@ class Meeting extends Model
     {
         return [
             'meeting_date' => 'date',
+            'scheduled_start_at' => 'datetime',
             'arrived_at' => 'datetime',
         ];
     }
@@ -29,6 +33,11 @@ class Meeting extends Model
     protected static function booted(): void
     {
         static::creating(function (Meeting $meeting) {
+            $key = $meeting->getKeyName();
+            if (empty($meeting->{$key}) && static::usesUlidKey()) {
+                $meeting->{$key} = (string) Str::ulid();
+            }
+
             if ($meeting->reference) {
                 return;
             }
@@ -39,6 +48,21 @@ class Meeting extends Model
 
             $meeting->reference = $reference;
         });
+    }
+
+    public function getIncrementing()
+    {
+        return !static::usesUlidKey();
+    }
+
+    public function getKeyType()
+    {
+        return static::usesUlidKey() ? 'string' : 'int';
+    }
+
+    private static function usesUlidKey(): bool
+    {
+        return in_array(Schema::getColumnType('meetings', 'id'), ['char', 'string'], true);
     }
 
     public function host(): BelongsTo

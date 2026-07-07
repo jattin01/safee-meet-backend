@@ -21,7 +21,7 @@ class MeetingController extends Controller
 
         $meetings = Meeting::where('host_user_id', $userId)
             ->orWhere('guest_user_id', $userId)
-            ->with(['host:id,name', 'guest:id,name'])
+            ->with(['host:id,display_name,trust_score,trust_tier', 'guest:id,display_name,trust_score,trust_tier'])
             ->latest('meeting_date')
             ->paginate(20);
 
@@ -32,7 +32,11 @@ class MeetingController extends Controller
     {
         $this->authorizeParticipant($request, $meeting);
 
-        return response()->json($meeting->load(['host:id,name', 'guest:id,name', 'locations']));
+        return response()->json($meeting->load([
+            'host:id,display_name,trust_score,trust_tier',
+            'guest:id,display_name,trust_score,trust_tier',
+            'locations',
+        ]));
     }
 
     /**
@@ -41,10 +45,8 @@ class MeetingController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
-        
         $validated = $request->validate([
-            'guest_user_id' => ['required', 'integer', 'exists:users,id'],
-            'host_user_id' => ['required', 'integer', 'exists:users,id'],
+            'guest_user_id' => ['required', 'string', 'exists:users,id'],
             'meeting_date' => ['required', 'date'],
             'meeting_time' => ['required'],
             'location' => ['required', 'string', 'max:255'],
@@ -57,33 +59,50 @@ class MeetingController extends Controller
             ])],
         ]);
 
-      
+        // The host is whoever is authenticated — never trust a client-supplied id here.
+        $hostId = $request->user()->id;
 
-     
+        if ($validated['guest_user_id'] === $hostId) {
+            throw ValidationException::withMessages([
+                'guest_user_id' => 'You cannot create a meeting with yourself.',
+            ]);
+        }
+
+        $startAt = \Illuminate\Support\Carbon::parse($validated['meeting_date'].' '.$validated['meeting_time']);
 
         $meeting = Meeting::create([
-            'host_user_id' => $validated['host_user_id'],
+            'host_user_id' => $hostId,
             'guest_user_id' => $validated['guest_user_id'],
+            // "title"/"scheduled_start_at" predate this API and are still
+            // required by the table — derive them from the new fields.
+            'title' => $validated['purpose'] ?? 'Meeting',
+            'scheduled_start_at' => $startAt,
             'meeting_date' => $validated['meeting_date'],
             'meeting_time' => $validated['meeting_time'],
             'location' => $validated['location'],
+            'planned_address' => $validated['location'],
             'latitude' => $validated['latitude'] ?? null,
             'longitude' => $validated['longitude'] ?? null,
+            'planned_latitude' => $validated['latitude'] ?? null,
+            'planned_longitude' => $validated['longitude'] ?? null,
             'purpose' => $validated['purpose'] ?? null,
             'item_or_service' => $validated['item_or_service'] ?? null,
             'type' => $validated['type'] ?? 'other',
             'status' => 'scheduled',
-            'trust_score_snapshot' =>5,
+            'trust_score_snapshot' => $request->user()->trust_score,
         ]);
 
-
-        return response()->json($meeting->load('guest:id,name,verification_level,trust_score'), 201);
+        return response()->json([
+            'success' => true,
+            'message' => 'Meeting created successfully.',
+            'data' => ['meeting_id' => $meeting->id],
+        ], 201);
     }
 
     public function destroy(Request $request, Meeting $meeting): JsonResponse
     {
         abort_unless(
-            (int) $request->user()->id === (int) $meeting->host_user_id,
+            $request->user()->id === $meeting->host_user_id,
             403,
             'Only the meeting host can delete this meeting'
         );
