@@ -14,6 +14,12 @@ class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
 
+    // users.id is a char(26) ULID (Firebase-based accounts), not an
+    // auto-increment integer — without this, Eloquent overwrites the id
+    // we set on create() with a bogus lastInsertId() after every insert.
+    protected $keyType = 'string';
+    public $incrementing = false;
+
     protected $fillable = [
         'name',
         'email',

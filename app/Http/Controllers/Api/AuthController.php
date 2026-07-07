@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Http\JsonResponse;
 
@@ -120,11 +121,16 @@ class AuthController extends Controller
 
             if (! $user) {
                 $user = User::create([
-                    'name' => $challenge['name'],
+                    'id' => (string) Str::ulid(),
+                    // This deployment's users table has no plain "name"
+                    // column — display_name is the real one.
+                    'display_name' => $challenge['name'],
                     'phone' => $validated['phone'],
                     'phone_verified_at' => now(),
                     'safee_pin' => User::generateSafeePin(),
                     'subscription_status' => 'trial',
+                    'status' => 'active',
+                    'auth_provider' => 'phone',
                 ]);
             } elseif (! $user->phone_verified_at) {
                 $user->forceFill(['phone_verified_at' => now()])->save();
