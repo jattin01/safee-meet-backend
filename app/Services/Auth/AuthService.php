@@ -37,7 +37,8 @@ class AuthService
         // 3. Create user inside a transaction
         $user = DB::transaction(function () use ($payload, $identity) {
             $user = User::create([
-                'id'              => (string) Str::ulid(),
+                // 'id' is set by User::booted()'s creating hook, not here —
+                // it isn't mass-assignable so passing it in this array is a no-op.
                 'firebase_uid'    => $identity->providerUid,   // provider-UID stored here
                 'safee_id'        => $this->generateSafeeId(),
                 'account_type'    => $payload['accountType'] ?? 'normal',

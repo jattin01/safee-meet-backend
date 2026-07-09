@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\HasApiTokens;
 use App\Models\EmergencyContact;
 
@@ -19,6 +20,19 @@ class User extends Authenticatable
     // we set on create() with a bogus lastInsertId() after every insert.
     protected $keyType = 'string';
     public $incrementing = false;
+
+    protected static function booted(): void
+    {
+        // 'id' isn't mass-assignable (see $fillable below), so a plain
+        // User::create(['id' => ...]) silently drops it and MySQL rejects
+        // the insert (char(26) PK has no default). Set it directly here,
+        // bypassing mass assignment, same pattern as Meeting::booted().
+        static::creating(function (User $user): void {
+            if (empty($user->id)) {
+                $user->id = (string) Str::ulid();
+            }
+        });
+    }
 
     protected $fillable = [
         'name',

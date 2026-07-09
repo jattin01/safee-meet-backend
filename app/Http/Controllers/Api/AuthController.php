@@ -121,7 +121,8 @@ class AuthController extends Controller
 
             if (! $user) {
                 $user = User::create([
-                    'id' => (string) Str::ulid(),
+                    // 'id' is set by User::booted()'s creating hook, not here —
+                    // it isn't mass-assignable so passing it in this array is a no-op.
                     // This deployment's users table has no plain "name"
                     // column — display_name is the real one.
                     'display_name' => $challenge['name'],
