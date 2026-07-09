@@ -174,6 +174,10 @@ class MigrateUsersToBigintId extends Command
                 continue;
             }
             foreach ($columns as $col) {
+                if (!Schema::hasColumn($table, $col)) {
+                    $this->warn("  {$table}.{$col} does not exist on this database (schema drift from the reference dump) — skipping.");
+                    continue;
+                }
                 $newCol = "{$col}_new";
                 if (Schema::hasColumn($table, $newCol)) {
                     continue;
@@ -201,6 +205,9 @@ class MigrateUsersToBigintId extends Command
                 continue;
             }
             foreach ($columns as $col) {
+                if (!Schema::hasColumn($table, $col)) {
+                    continue; // already warned about this during shadow
+                }
                 $newCol = "{$col}_new";
                 if (!Schema::hasColumn($table, $newCol)) {
                     $this->warn("  {$table}.{$newCol} missing — run --step=shadow first. Skipping.");
@@ -240,6 +247,9 @@ class MigrateUsersToBigintId extends Command
                 continue;
             }
             foreach ($columns as $col) {
+                if (!Schema::hasColumn($table, $col)) {
+                    continue;
+                }
                 $newCol = "{$col}_new";
                 if (!Schema::hasColumn($table, $newCol)) {
                     continue;
@@ -259,6 +269,9 @@ class MigrateUsersToBigintId extends Command
                 continue;
             }
             foreach ($columns as $col) {
+                if (!Schema::hasColumn($table, $col)) {
+                    continue;
+                }
                 $newCol = "{$col}_new";
                 if (!Schema::hasColumn($table, $newCol)) {
                     continue;
