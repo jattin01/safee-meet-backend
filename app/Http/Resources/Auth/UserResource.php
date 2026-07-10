@@ -22,6 +22,7 @@ class UserResource extends JsonResource
             'kycStatus'          => $this->kyc_status,
             'trustScore'         => $this->trust_score,
             'trustTier'          => VerificationLevelResolver::fromUser($this->kyc_status, $this->trust_tier),
+            'pinSearchCount'     => $this->pinSearchCount(),
             'email'              => $this->email,
             'phone'              => $this->phone,
             'isChatEnabled'      => $this->is_chat_enabled,

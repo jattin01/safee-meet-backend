@@ -189,6 +189,18 @@ class User extends Authenticatable
         return $this->hasMany(Meeting::class, 'host_user_id');
     }
 
+    /** Deduped rows of unique people who have searched this user's Safee PIN/QR. */
+    public function pinSearches()
+    {
+        return $this->hasMany(MemberSearchCount::class, 'member_id');
+    }
+
+    /** Number of unique members who have searched this user's Safee PIN/QR. */
+    public function pinSearchCount(): int
+    {
+        return $this->pinSearches()->count();
+    }
+
     // public function emergencyContacts()
     // {
     //     return $this->hasMany(EmergencyContact::class);
