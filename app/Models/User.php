@@ -197,16 +197,16 @@ class User extends Authenticatable
             ->count();
     }
 
-    /** Deduped rows of unique people who have searched this user's Safee PIN/QR. */
-    public function pinSearches()
+    /** Deduped rows of unique members this user has searched via Safee PIN/QR. */
+    public function searchedMembers()
     {
-        return $this->hasMany(MemberSearchCount::class, 'member_id');
+        return $this->hasMany(MemberSearchCount::class, 'searcher_id');
     }
 
-    /** Number of unique members who have searched this user's Safee PIN/QR. */
+    /** Number of unique members this user has searched via Safee PIN/QR. */
     public function pinSearchCount(): int
     {
-        return $this->pinSearches()->count();
+        return $this->searchedMembers()->count();
     }
 
     // public function emergencyContacts()
