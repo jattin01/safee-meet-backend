@@ -90,7 +90,7 @@
 
                 <div class="px-4 py-2 text-center">
                     <p class="font-bold text-base flex items-center justify-center gap-1">
-                        <img src="https://api.iconify.design/lucide/key-round.svg?color=%23facc15" class="w-3.5 h-3.5" alt=""> {{ $user->safee_pin ? '#'.$user->safee_pin : '—' }}
+                        <img src="https://api.iconify.design/lucide/key-round.svg?color=%23facc15" class="w-3.5 h-3.5" alt=""> {{ $user->safee_id ? '#'.$user->safee_id : '—' }}
                     </p>
                     <p class="text-[10px] uppercase tracking-wide text-[#fff]">Safee PIN</p>
                 </div>

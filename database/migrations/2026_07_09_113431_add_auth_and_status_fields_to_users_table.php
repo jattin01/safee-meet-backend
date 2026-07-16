@@ -23,12 +23,20 @@ return new class extends Migration
                     $table->index('firebase_uid');
                 });
             }
-            $table->enum('auth_provider', [
-                'phone',
-                'google',
-                'apple',
-                'email'
-            ])->default('phone')->after('firebase_uid');
+            if (!Schema::hasColumn('users', 'auth_provider')) {
+                $table->enum('auth_provider', [
+                    'phone',
+                    'google',
+                    'apple',
+                    'email'
+                ])->default('phone')->after('firebase_uid');
+            }
+            // $table->enum('auth_provider', [
+            //     'phone',
+            //     'google',
+            //     'apple',
+            //     'email'
+            // ])->default('phone')->after('firebase_uid');
 
             /*
             |--------------------------------------------------------------------------
