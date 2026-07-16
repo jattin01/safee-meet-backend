@@ -11,7 +11,6 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class IdentityVerificationService
@@ -88,7 +87,6 @@ class IdentityVerificationService
             $document = $verification->documents()->latest('created_at')->first();
             if (!$document) {
                 $document = new IdentityDocument([
-                    'id' => (string) Str::ulid(),
                     'user_id' => $user->id,
                 ]);
                 $document->identity_verification_id = $verification->id;
@@ -146,7 +144,6 @@ class IdentityVerificationService
             $selfieRecord = $existing->selfieVerifications()->latest('created_at')->first();
             if (!$selfieRecord) {
                 $selfieRecord = new SelfieVerification([
-                    'id' => (string) Str::ulid(),
                     'user_id' => $user->id,
                 ]);
                 $selfieRecord->identity_verification_id = $existing->id;
@@ -313,7 +310,6 @@ class IdentityVerificationService
         }
 
         return IdentityVerification::create([
-            'id' => (string) Str::ulid(),
             'user_id' => $user->id,
             'verification_level' => 'basic',
             'status' => 'draft',

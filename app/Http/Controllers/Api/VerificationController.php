@@ -6,9 +6,275 @@ use App\Http\Controllers\Controller;
 use App\Models\VerificationRequest;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use App\Models\UserVerification;
+use Illuminate\Support\Facades\DB;
 
 class VerificationController extends Controller
 {
+
+    // public function submitVerification(Request $request): JsonResponse
+    // {
+    //     $validated = $request->validate([
+    //         'face_id_image' => ['required','image','mimes:jpg,jpeg,png,webp','max:5120'],
+    //         'national_id_front_image' => ['required','image','mimes:jpg,jpeg,png,webp','max:5120'],
+    //         'national_id_back_image' => ['required','image','mimes:jpg,jpeg,png,webp','max:5120'],
+    //         'national_id_number' => ['nullable','string','max:100'],
+    //         'national_id_country' => ['nullable','string','max:100'],
+    //     ]);
+
+    //     $user = $request->user();
+
+    //     $faceIdPath = $request
+    //         ->file('face_id_image')
+    //         ->store('verification/face-id', 'public');
+
+    //     $nationalIdFrontPath = $request
+    //         ->file('national_id_front_image')
+    //         ->store('verification/national-id', 'public');
+
+    //     $nationalIdBackPath = $request
+    //         ->file('national_id_back_image')
+    //         ->store('verification/national-id', 'public');
+
+    //     $verification = UserVerification::updateOrCreate(
+    //         [
+    //             'user_id' => $user->id,
+    //         ],
+    //         [
+    //             'face_id_image' => $faceIdPath,
+    //             'national_id_front_image' => $nationalIdFrontPath,
+    //             'national_id_back_image' => $nationalIdBackPath,
+    //             'national_id_number' => $validated['national_id_number'] ?? null,
+    //             'national_id_country' => $validated['national_id_country'] ?? null,
+
+    //             // Approval ke baad hi Level 1 hoga
+    //             'verification_level' => 0,
+    //             'status' => 'pending',
+
+    //             'reviewed_by' => null,
+    //             'rejection_reason' => null,
+    //             'submitted_at' => now(),
+    //             'reviewed_at' => null,
+    //             'approved_at' => null,
+    //             'rejected_at' => null,
+    //         ]
+    //     );
+
+    //     return response()->json([
+    //         'status' => true,
+    //         'message' => 'Verification documents submitted successfully.',
+    //         'data' => $verification,
+    //     ]);
+    // }
+    public function submitVerification(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'user_id' => [
+                'required',
+                'integer',
+                'exists:users,id',
+            ],
+
+            'face_id_image' => [
+                'required',
+                'image',
+                'mimes:jpg,jpeg,png,webp',
+                'max:5120',
+            ],
+
+            'national_id_front_image' => [
+                'required',
+                'image',
+                'mimes:jpg,jpeg,png,webp',
+                'max:5120',
+            ],
+
+            'national_id_back_image' => [
+                'required',
+                'image',
+                'mimes:jpg,jpeg,png,webp',
+                'max:5120',
+            ],
+
+            'national_id_number' => [
+                'nullable',
+                'string',
+                'max:100',
+            ],
+
+            'national_id_country' => [
+                'nullable',
+                'string',
+                'max:100',
+            ],
+        ]);
+
+        $existingVerification = UserVerification::where(
+            'user_id',
+            $validated['user_id']
+        )->first();
+
+        if ($existingVerification?->status === 'approved') {
+            return response()->json([
+                'status' => false,
+                'message' => 'This user is already verified.',
+            ], 422);
+        }
+
+        $uploadedPaths = [];
+
+        try {
+            DB::beginTransaction();
+
+            $faceIdPath = $request
+                ->file('face_id_image')
+                ->store('verification/face-id', 'public');
+
+            $uploadedPaths[] = $faceIdPath;
+
+            $nationalIdFrontPath = $request
+                ->file('national_id_front_image')
+                ->store('verification/national-id', 'public');
+
+            $uploadedPaths[] = $nationalIdFrontPath;
+
+            $nationalIdBackPath = $request
+                ->file('national_id_back_image')
+                ->store('verification/national-id', 'public');
+
+            $uploadedPaths[] = $nationalIdBackPath;
+
+            /*
+             * User dobara submit kare to purani images remove kar denge.
+             */
+            if ($existingVerification) {
+                $oldImages = [
+                    $existingVerification->face_id_image,
+                    $existingVerification->national_id_front_image,
+                    $existingVerification->national_id_back_image,
+                ];
+
+                foreach ($oldImages as $oldImage) {
+                    if (
+                        $oldImage &&
+                        Storage::disk('public')->exists($oldImage)
+                    ) {
+                        Storage::disk('public')->delete($oldImage);
+                    }
+                }
+            }
+
+            $verification = UserVerification::updateOrCreate(
+                [
+                    'user_id' => $validated['user_id'],
+                ],
+                [
+                    'face_id_image' => $faceIdPath,
+                    'national_id_front_image' => $nationalIdFrontPath,
+                    'national_id_back_image' => $nationalIdBackPath,
+
+                    'national_id_number' =>
+                        $validated['national_id_number'] ?? null,
+
+                    'national_id_country' =>
+                        $validated['national_id_country'] ?? null,
+
+                    'verification_level' => 0,
+                    'status' => 'pending',
+
+                    'reviewed_by' => null,
+                    'rejection_reason' => null,
+
+                    'submitted_at' => now(),
+                    'reviewed_at' => null,
+                    'approved_at' => null,
+                    'rejected_at' => null,
+                ]
+            );
+
+            DB::commit();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Verification documents submitted successfully.',
+                'data' => [
+                    'id' => $verification->id,
+                    'user_id' => $verification->user_id,
+
+                    'face_id_image' => asset(
+                        'storage/' . $verification->face_id_image
+                    ),
+
+                    'national_id_front_image' => asset(
+                        'storage/' .
+                        $verification->national_id_front_image
+                    ),
+
+                    'national_id_back_image' => asset(
+                        'storage/' .
+                        $verification->national_id_back_image
+                    ),
+
+                    'national_id_number' =>
+                        $verification->national_id_number,
+
+                    'national_id_country' =>
+                        $verification->national_id_country,
+
+                    'verification_level' =>
+                        $verification->verification_level,
+
+                    'status' => $verification->status,
+                    'submitted_at' => $verification->submitted_at,
+                ],
+            ], 201);
+        } catch (\Throwable $exception) {
+            DB::rollBack();
+
+            foreach ($uploadedPaths as $path) {
+                if (Storage::disk('public')->exists($path)) {
+                    Storage::disk('public')->delete($path);
+                }
+            }
+
+            report($exception);
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Unable to submit verification documents.',
+            ], 500);
+        }
+    }
+
+    public function approve(Request $request,UserVerification $verification): JsonResponse
+    {
+                if (
+                    !$verification->face_id_image ||
+                    !$verification->national_id_front_image ||
+                    !$verification->national_id_back_image
+                ) {
+                    return response()->json([
+                        'status' => false,
+                        'message' => 'All required verification documents are not available.',
+                    ], 422);
+                }
+
+                $verification->update([
+                    'status' => 'approved',
+                    'verification_level' => 1,
+                    'reviewed_by' => $request->user()->id,
+                    'rejection_reason' => null,
+                    'reviewed_at' => now(),
+                    'approved_at' => now(),
+                    'rejected_at' => null,
+                ]);
+
+                return response()->json([
+                    'status' => true,
+                    'message' => 'Verification approved and Level 1 assigned.',
+                    'data' => $verification->fresh(),
+                ]);
+            }
     /**
      * GET /api/verification/status
      * Matches the "Verification Status" screen: trust score, badges, per-level checklist.

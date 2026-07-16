@@ -11,11 +11,8 @@ class IdentityDocument extends Model
     use HasFactory, SoftDeletes;
 
     protected $table = 'identity_documents';
-    protected $keyType = 'string';
-    public $incrementing = false;
 
     protected $fillable = [
-        'id',
         'identity_verification_id',
         'user_id',
         'document_type',

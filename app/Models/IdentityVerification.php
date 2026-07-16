@@ -10,11 +10,8 @@ class IdentityVerification extends Model
     use HasFactory;
 
     protected $table = 'identity_verifications';
-    protected $keyType = 'string';
-    public $incrementing = false;
 
     protected $fillable = [
-        'id',
         'user_id',
         'provider',
         'provider_reference_id',

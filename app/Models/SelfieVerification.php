@@ -10,11 +10,8 @@ class SelfieVerification extends Model
     use HasFactory;
 
     protected $table = 'selfie_verifications';
-    protected $keyType = 'string';
-    public $incrementing = false;
 
     protected $fillable = [
-        'id',
         'identity_verification_id',
         'user_id',
         'selfie_file_url',

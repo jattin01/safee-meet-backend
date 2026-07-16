@@ -10,6 +10,7 @@ class SubscriptionsController extends Controller
     public function index(Request $request)
     {
         if ($request->isMethod('post')) {
+            
             $action = $request->input('action', 'store');
 
             if ($action === 'delete') {

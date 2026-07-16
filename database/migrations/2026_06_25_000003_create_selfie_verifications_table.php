@@ -13,8 +13,8 @@ return new class extends Migration
         }
 
         Schema::create('selfie_verifications', function (Blueprint $table) {
-            $table->string('id', 26)->primary();
-            $table->string('identity_verification_id', 26)->index();
+            $table->id();
+            $table->unsignedBigInteger('identity_verification_id')->index();
             $table->string('user_id', 26)->index();
             $table->text('selfie_file_url');
             $table->decimal('liveness_score', 5, 2)->nullable();

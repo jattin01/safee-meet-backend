@@ -13,8 +13,8 @@ return new class extends Migration
         }
 
         Schema::create('identity_documents', function (Blueprint $table) {
-            $table->string('id', 26)->primary();
-            $table->string('identity_verification_id', 26)->index();
+            $table->id();
+            $table->unsignedBigInteger('identity_verification_id')->index();
             $table->string('user_id', 26)->index();
             $table->string('document_type')->default('other');
             $table->string('issuing_country_code', 2)->default('ZZ');

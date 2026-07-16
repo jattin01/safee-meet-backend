@@ -13,7 +13,7 @@ return new class extends Migration
         }
 
         Schema::create('identity_verifications', function (Blueprint $table) {
-            $table->string('id', 26)->primary();
+            $table->id();
             $table->string('user_id', 26)->index();
             $table->string('provider')->nullable();
             $table->string('provider_reference_id')->nullable()->index();

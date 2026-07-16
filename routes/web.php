@@ -29,6 +29,7 @@ Route::middleware('auth:admin')->group(function () {
     Route::get('/admins', [AdminController::class, 'index'])->name('admins.index');
     Route::get('/admins/data', [AdminController::class, 'data'])->name('admins.data');
     Route::get('/verification', [VerificationController::class, 'index'])->name('verification');
+    Route::get('/verification/{verification}', [VerificationController::class, 'show'])->name('verification.show');
     Route::get('/verification/{verification}/{asset}', [VerificationController::class, 'showAsset'])
         ->whereIn('asset', ['front', 'back', 'selfie'])
         ->name('verification.files.show');

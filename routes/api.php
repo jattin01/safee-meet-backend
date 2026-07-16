@@ -8,10 +8,12 @@ use App\Http\Controllers\Api\MeetingController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\ReviewController;
 use App\Http\Controllers\Api\VerificationApiController;
+use App\Http\Controllers\Api\VerificationController;
 use App\Http\Controllers\MemberController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\SosController;
 use App\Http\Controllers\Api\SubscriptionController;
+use App\Http\Controllers\Api\SubscriptionPlanController;
 
 /*
 |--------------------------------------------------------------------------
@@ -42,7 +44,7 @@ Route::prefix('v1')->group(function (): void {
     });
 
     // ── Everything below requires a valid Sanctum token ─────────────────────
-    Route::middleware('auth:sanctum')->group(function (): void {
+   // Route::middleware('auth:sanctum')->group(function (): void {
 
         Route::prefix('auth')->group(function (): void {
             Route::get('me', [AuthController::class, 'me']);
@@ -86,6 +88,7 @@ Route::prefix('v1')->group(function (): void {
         Route::post('/subscriptions/subscribe', [SubscriptionController::class, 'subscribe']);
         Route::post('/subscriptions/cancel', [SubscriptionController::class, 'cancel']);
 
+
         Route::prefix('members')->group(function (): void {
             Route::get('search', [MemberController::class, 'searchByPin']);
             Route::get('qr', [MemberController::class, 'searchByQR']);
@@ -93,11 +96,12 @@ Route::prefix('v1')->group(function (): void {
         });
 
         Route::prefix('verification')->group(function (): void {
+            Route::post('/submit', [VerificationController::class,'submitVerification',]);
             Route::get('status', [VerificationApiController::class, 'status']);
             Route::get('progress', [VerificationApiController::class, 'progress']);
             Route::post('id', [VerificationApiController::class, 'uploadId']);
             Route::post('selfie', [VerificationApiController::class, 'uploadSelfie']);
         });
-    });
+   // });
 });
 

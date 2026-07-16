@@ -159,6 +159,11 @@ class User extends Authenticatable
         return $this->hasMany(IdentityVerification::class);
     }
 
+    public function userVerification()
+    {
+        return $this->hasOne(UserVerification::class);
+    }
+
     public function trustScoreSnapshots()
     {
         return $this->hasMany(TrustScoreSnapshot::class);
