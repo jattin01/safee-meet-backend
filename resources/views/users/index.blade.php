@@ -44,7 +44,7 @@
                                 </div>
                             </div>
                         </td>
-                        <td class="px-5 py-4 text-[#fff] font-medium">{{ $user->safee_pin ? '#'.$user->safee_pin : '—' }}</td>
+                        <td class="px-5 py-4 text-[#fff] font-medium">{{ $user->safee_id ? '#'.$user->safee_id : '—' }}</td>
                         <td style="padding:14px 20px;">
                             <span style="background:{{ $user->verification_color }}26; color:{{ $user->verification_color }}; font-size:11px; padding:3px 10px; border-radius:999px;">● {{ $user->verification_label }}</span>
                         </td>
