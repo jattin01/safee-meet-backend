@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Meeting;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -13,14 +15,17 @@ class ProfileController extends Controller
      * Matches the Home screen: greeting, trust score, quick stats, quick actions data, recent meetings.
      */
     public function home(Request $request): JsonResponse
-    {
-        $user = $request->user();
+    {   
+            // $user = \App\Models\User::findOrFail($request->user_id);
+        
+        //  dd($request->user());
+         $user = $request->user();
 
-        $meetingsCount = $user->hostedMeetings()->count() + $user->guestMeetings()->count();
+        $meetingsCount = $user->meetingCount();
 
-        $recentMeetings = $user->hostedMeetings()
-            ->with('guest:id,name')
+        $recentMeetings = Meeting::where('host_user_id', $user->id)
             ->orWhere('guest_user_id', $user->id)
+            ->with(['host:id,name', 'guest:id,name'])
             ->latest('meeting_date')
             ->take(5)
             ->get();
@@ -38,6 +43,35 @@ class ProfileController extends Controller
             'recent_meetings' => $recentMeetings,
         ]);
     }
+
+    //code before changes 
+    // public function home(Request $request): JsonResponse
+    // {
+    //     $user = $request->user();
+
+    //     $meetingsCount = $user->hostedMeetings()->count() + $user->guestMeetings()->count();
+
+    //     $recentMeetings = $user->hostedMeetings()
+    //         ->with('guest:id,name')
+    //         ->orWhere('guest_user_id', $user->id)
+    //         ->latest('meeting_date')
+    //         ->take(5)
+    //         ->get();
+
+    //     return response()->json([
+    //         'greeting' => 'Good morning',
+    //         'name' => $user->name,
+    //         'badge' => $user->badge,
+    //         'verification_level' => $user->verification_level,
+    //         'trust_score' => $user->trust_score,
+    //         'meetings_count' => $meetingsCount,
+    //         'rating' => $user->rating,
+    //         'safee_pin' => $user->safee_pin,
+    //         'unread_notifications' => 0, // TODO: wire to a notifications table if/when built
+    //         'recent_meetings' => $recentMeetings,
+    //     ]);
+        
+    // }
 
     /**
      * GET /api/profile
@@ -58,7 +92,7 @@ class ProfileController extends Controller
                 $user->subscription_plan === 'professional' ? 'Professional' : null,
             ]),
             'safee_pin' => $user->safee_pin,
-            'meetings_count' => $user->hostedMeetings()->count() + $user->guestMeetings()->count(),
+            'meetings_count' => $user->meetingCount(),
             'trust_score' => $user->trust_score,
             'rating' => $user->rating,
             'current_plan' => $user->subscription_plan,

@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\EmergencyContactController;
 use App\Http\Controllers\Api\MeetingController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\ReviewController;
+use App\Http\Controllers\Api\ProfileController; 
 use App\Http\Controllers\Api\VerificationApiController;
 use App\Http\Controllers\Api\VerificationController;
 use App\Http\Controllers\MemberController;
@@ -20,7 +21,7 @@ use App\Http\Controllers\Api\SubscriptionPlanController;
 | SAFEE MEET API Routes
 |--------------------------------------------------------------------------
 */
-
+Route::middleware('auth:sanctum')->get('/v1/auth/phone/home', [ProfileController::class, 'home']);
 Route::prefix('v1')->group(function (): void {
 
     // ── Auth (Firebase — used by the shipped app; public) ──────────────────
@@ -41,6 +42,7 @@ Route::prefix('v1')->group(function (): void {
         Route::post('login', [PhoneOtpAuthController::class, 'login'])->middleware('throttle:5,1');
         Route::post('login-or-register', [PhoneOtpAuthController::class, 'loginOrRegister'])->middleware('throttle:5,1');
         Route::post('verify-otp', [PhoneOtpAuthController::class, 'verifyOtp'])->middleware('throttle:10,1');
+        // Route::get('home',[ProfileController::class,'home'])->middleware('throttle:5,1');
     });
 
     // ── Everything below requires a valid Sanctum token ─────────────────────
