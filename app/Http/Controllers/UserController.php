@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\Meeting;
 use App\Models\MeetingReview;
 use App\Models\Subscription;
-use App\Models\SubscriptionPlan;
 use App\Models\User;
 use Illuminate\Http\Request;
 
@@ -46,12 +45,11 @@ class UserController extends Controller
             $averageRating = MeetingReview::where('reviewee_id', $user->id)->avg('rating');
 
             $subscription = Subscription::where('user_id', $user->id)
+                ->with('plan')
                 ->latest('started_at')
                 ->first();
 
-            $subscriptionPlan = $subscription
-                ? SubscriptionPlan::where('name', $subscription->plan)->first()
-                : null;
+            $subscriptionPlan = $subscription?->plan;
 
             return view('users.show', [
                 'user' => $user,

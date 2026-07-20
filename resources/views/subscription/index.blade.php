@@ -107,7 +107,7 @@
 
 </div-->
 
-<div x-data="{ activeTab: 'monthly', showForm: false, showEditModal: false, editingPlan: { id: null, name: '', monthly_price: '', yearly_price: '', features: '' } }" class="mt-[30px]">
+<div x-data="{ activeTab: 'monthly', showForm: false, showEditModal: false, editingPlan: { id: null, name: '', monthly_price: '', yearly_price: '', trial_days: '', features: '' } }" class="mt-[30px]">
     @if(session('success'))
         <div class="mb-4 rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-400">
             {{ session('success') }}
@@ -155,6 +155,10 @@
                 <input id="yearly_price" name="yearly_price" type="number" step="0.01" min="0" required class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="290.00">
             </div>
             <div class="md:col-span-2">
+                <label class="mb-2 block text-sm text-gray-400" for="trial_days">Free trial days <span class="text-gray-600">(leave blank for no trial)</span></label>
+                <input id="trial_days" name="trial_days" type="number" min="0" step="1" class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="100">
+            </div>
+            <div class="md:col-span-2">
                 <label class="mb-2 block text-sm text-gray-400" for="features">Features (one per line)</label>
                 <textarea id="features" name="features" rows="4" class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="Unlimited projects&#10;Priority support"></textarea>
             </div>
@@ -174,7 +178,7 @@
                     <i class="fa-solid {{ $plan['icon'] }}"></i>
                 </span>
                 <button type="button"
-                    @click="showEditModal = true; editingPlan = { id: {{ $plan['id'] }}, name: @js($plan['name']), monthly_price: {{ (float) $plan['monthly_price'] }}, yearly_price: {{ (float) $plan['yearly_price'] }}, features: @js(implode(chr(10), $plan['features'])) }"
+                    @click="showEditModal = true; editingPlan = { id: {{ $plan['id'] }}, name: @js($plan['name']), monthly_price: {{ (float) $plan['monthly_price'] }}, yearly_price: {{ (float) $plan['yearly_price'] }}, trial_days: {{ $plan['trial_days'] ?? "''" }}, features: @js(implode(chr(10), $plan['features'])) }"
                     class="absolute top-2 right-12 rounded-lg border border-blue-400 w-[30px] h-[30px] p-[0px] text-[12px] font-semibold text-blue-400 transition hover:bg-blue-400 hover:text-white">
                     <i class="fa-regular fa-pen-to-square"></i>
                 </button>
@@ -206,7 +210,7 @@
                     <i class="fa-solid {{ $plan['icon'] }}"></i>
                 </span>
                 <button type="button"
-                    @click="showEditModal = true; editingPlan = { id: {{ $plan['id'] }}, name: @js($plan['name']), monthly_price: {{ (float) $plan['monthly_price'] }}, yearly_price: {{ (float) $plan['yearly_price'] }}, features: @js(implode(chr(10), $plan['features'])) }"
+                    @click="showEditModal = true; editingPlan = { id: {{ $plan['id'] }}, name: @js($plan['name']), monthly_price: {{ (float) $plan['monthly_price'] }}, yearly_price: {{ (float) $plan['yearly_price'] }}, trial_days: {{ $plan['trial_days'] ?? "''" }}, features: @js(implode(chr(10), $plan['features'])) }"
                     class="absolute top-2 right-12 rounded-lg border border-blue-400 w-[30px] h-[30px] p-[0px] text-[12px] font-semibold text-blue-400 transition hover:bg-blue-400 hover:text-white">
                     <i class="fa-regular fa-pen-to-square"></i>
                 </button>
@@ -259,6 +263,10 @@
                 <div>
                     <label class="mb-2 block text-sm text-gray-400" for="edit_yearly_price">Yearly price</label>
                     <input id="edit_yearly_price" name="yearly_price" type="number" step="0.01" min="0" x-model="editingPlan.yearly_price" required class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="mb-2 block text-sm text-gray-400" for="edit_trial_days">Free trial days <span class="text-gray-600">(leave blank for no trial)</span></label>
+                    <input id="edit_trial_days" name="trial_days" type="number" min="0" step="1" x-model="editingPlan.trial_days" class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="100">
                 </div>
                 <div class="md:col-span-2">
                     <label class="mb-2 block text-sm text-gray-400" for="edit_features">Features (one per line)</label>

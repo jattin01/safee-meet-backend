@@ -60,7 +60,7 @@ class User extends Authenticatable
         'role',
         'verification_level',
         'badge',
-        'subscription_plan',
+        'plan_id',
         'subscription_status',
         'safee_pin',
         'dob',
@@ -245,7 +245,21 @@ class User extends Authenticatable
 
     public function subscriptions()
     {
-        return $this->hasMany(UserSubscription::class);
+        return $this->hasMany(Subscription::class);
+    }
+
+    /** The plan catalog row for this user's current plan (read shortcut). */
+    public function plan()
+    {
+        return $this->belongsTo(SubscriptionPlan::class, 'plan_id');
+    }
+
+    /** Latest still-running (trial or active) subscription, if any. */
+    public function activeSubscription()
+    {
+        return $this->hasOne(Subscription::class)
+            ->whereIn('status', ['trial', 'active'])
+            ->latestOfMany();
     }
 
     public function payments()
@@ -318,13 +332,7 @@ class User extends Authenticatable
 
     public function getPlanLabelAttribute(): string
     {
-        return match ($this->subscription_plan) {
-            'free_trial' => 'Free Trial',
-            'basic' => 'Basic',
-            'premium' => 'Premium',
-            'professional' => 'Professional',
-            default => 'Free',
-        };
+        return $this->plan?->name ?? 'Free';
     }
 
     public function getStatusLabelAttribute(): string

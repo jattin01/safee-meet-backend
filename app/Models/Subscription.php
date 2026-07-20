@@ -11,7 +11,7 @@ class Subscription extends Model
     use HasFactory;
 
     protected $fillable = [
-        'user_id', 'plan', 'price', 'billing_cycle', 'status',
+        'user_id', 'plan_id', 'price', 'billing_cycle', 'status',
         'trial_days', 'started_at', 'renews_at', 'cancelled_at',
         'stripe_customer_id', 'stripe_subscription_id',
     ];
@@ -29,6 +29,11 @@ class Subscription extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function plan(): BelongsTo
+    {
+        return $this->belongsTo(SubscriptionPlan::class, 'plan_id');
     }
 
     public function scopeActive($query)
@@ -69,12 +74,6 @@ class Subscription extends Model
 
     public function getPlanLabelAttribute(): string
     {
-        return match ($this->plan) {
-            'free_trial' => 'Free Trial',
-            'basic' => 'Basic',
-            'premium' => 'Premium',
-            'professional' => 'Professional',
-            default => ucfirst(str_replace('_', ' ', (string) $this->plan)),
-        };
+        return $this->plan?->name ?? '—';
     }
 }

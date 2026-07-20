@@ -79,7 +79,8 @@ class ProfileController extends Controller
      */
     public function show(Request $request): JsonResponse
     {
-        $user = $request->user()->load('activeSubscription');
+        $user = $request->user()->load(['plan', 'activeSubscription.plan']);
+        $planSlug = $user->plan?->slug;
 
         return response()->json([
             'name' => $user->name,
@@ -88,14 +89,14 @@ class ProfileController extends Controller
             'badges' => array_filter([
                 $user->verification_level !== 'none' ? 'Level 1' : null,
                 in_array($user->verification_level, ['level2', 'professional']) ? 'Level 2' : null,
-                $user->subscription_plan === 'premium' ? 'Premium' : null,
-                $user->subscription_plan === 'professional' ? 'Professional' : null,
+                $planSlug === 'premium' ? 'Premium' : null,
+                $planSlug === 'professional' ? 'Professional' : null,
             ]),
             'safee_pin' => $user->safee_pin,
             'meetings_count' => $user->meetingCount(),
             'trust_score' => $user->trust_score,
             'rating' => $user->rating,
-            'current_plan' => $user->subscription_plan,
+            'current_plan' => $user->plan,
             'subscription' => $user->activeSubscription,
         ]);
     }

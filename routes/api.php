@@ -14,7 +14,6 @@ use App\Http\Controllers\MemberController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\SosController;
 use App\Http\Controllers\Api\SubscriptionController;
-use App\Http\Controllers\Api\SubscriptionPlanController;
 
 /*
 |--------------------------------------------------------------------------

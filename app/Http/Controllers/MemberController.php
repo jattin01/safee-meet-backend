@@ -46,6 +46,13 @@ class MemberController extends Controller
             ], 422);
         }
 
+        if ($this->pinSearchLimitReached($request->user(), $user)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You have reached your monthly SAFEE PIN search limit. Upgrade your plan to search more members.',
+            ], 403);
+        }
+
         $this->logSearch($request, $user, $pin, 'pin');
 
         return response()->json([
@@ -127,6 +134,44 @@ class MemberController extends Controller
      * searcher-member pair — a repeat search of the same member updates the
      * existing row's count/timestamp instead of counting again.
      */
+    /**
+     * Enforces the searcher's plan PIN-search quota, reset per calendar month.
+     * The quota counts DISTINCT members searched via PIN this month, sourced
+     * from search_history — so re-searching someone you already looked up this
+     * month is free, and the count resets naturally on the 1st.
+     *
+     * A null pin_search_limit (or no plan) means unlimited — no enforcement.
+     */
+    private function pinSearchLimitReached(User $searcher, User $target): bool
+    {
+        $limit = $searcher->plan?->pin_search_limit;
+
+        if ($limit === null) {
+            return false; // unlimited plan (or no plan set)
+        }
+
+        $monthStart = now()->startOfMonth();
+
+        // Already searched this member this month → doesn't consume new quota.
+        $alreadyThisMonth = SearchHistory::where('searcher_id', $searcher->id)
+            ->where('found_user_id', $target->id)
+            ->where('method', 'pin')
+            ->where('created_at', '>=', $monthStart)
+            ->exists();
+
+        if ($alreadyThisMonth) {
+            return false;
+        }
+
+        $distinctThisMonth = SearchHistory::where('searcher_id', $searcher->id)
+            ->where('method', 'pin')
+            ->where('created_at', '>=', $monthStart)
+            ->distinct()
+            ->count('found_user_id');
+
+        return $distinctThisMonth >= $limit;
+    }
+
     private function logSearch(Request $request, User $found, string $query, string $method): void
     {
         $searcherId = $request->user()->id;

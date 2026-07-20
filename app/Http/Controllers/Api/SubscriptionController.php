@@ -7,24 +7,28 @@ use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class SubscriptionController extends Controller
 {
     /**
-     * GET /api/subscriptions/plans — "Plans" screen
+     * GET /api/subscriptions/plans — "Plans" screen.
+     * Everything is catalog-driven from subscription_plans.
      */
     public function plans(): JsonResponse
     {
-        return response()->json(SubscriptionPlan::orderBy('sort_order')->get());
+        return response()->json(
+            SubscriptionPlan::active()->orderBy('sort_order')->get()
+        );
     }
 
     /**
-     * GET /api/subscriptions/current — Profile screen "Current Plan" card
+     * GET /api/subscriptions/current — Profile "Current Plan" card.
      */
     public function current(Request $request): JsonResponse
     {
-        $subscription = $request->user()->activeSubscription;
+        $subscription = $request->user()->activeSubscription()->with('plan')->first();
 
         if (! $subscription) {
             return response()->json(['message' => 'No active subscription'], 404);
@@ -34,49 +38,58 @@ class SubscriptionController extends Controller
     }
 
     /**
-     * POST /api/subscriptions/subscribe — Step 4 of onboarding (Free Trial / Basic / Premium / Professional)
-     * Payment is handled via Stripe per the SOW; this stub creates the local subscription
-     * record and expects a Stripe PaymentIntent/Subscription to already be confirmed client-side
-     * (or wired via webhook — see TODO below).
+     * POST /api/subscriptions/subscribe — pick a plan (by slug).
+     * Price / trial length come from the catalog row, never hardcoded.
+     * Payment: this creates the local record; wire the real Stripe call at
+     * the TODO before flipping a paid plan to 'active'.
      */
     public function subscribe(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'plan' => ['required', Rule::in(['free_trial', 'basic', 'premium', 'professional'])],
-            'billing_cycle' => ['required', Rule::in(['trial', 'monthly'])],
-            'stripe_payment_method_id' => ['required_unless:plan,free_trial', 'nullable', 'string'],
+            'plan_slug' => ['required', 'string', Rule::exists('subscription_plans', 'slug')->where('is_active', true)],
+            'billing_cycle' => ['required', Rule::in(['monthly', 'yearly'])],
+            'stripe_payment_method_id' => ['nullable', 'string'],
         ]);
 
         $user = $request->user();
+        $plan = SubscriptionPlan::where('slug', $validated['plan_slug'])->firstOrFail();
 
-        $prices = [
-            'free_trial' => 0,
-            'basic' => 0.99,
-            'premium' => 4.99,
-            'professional' => 9.99,
-        ];
+        $isTrial = (int) $plan->trial_days > 0;
+        $price = $validated['billing_cycle'] === 'yearly' ? $plan->yearly_price : $plan->monthly_price;
 
-        // TODO: integrate real Stripe subscription creation here, e.g.:
-        // $stripeSubscription = app(StripeService::class)->subscribe($user, $validated['plan'], $validated['stripe_payment_method_id']);
+        // A paid plan needs a payment method up front; a plan starting with a
+        // free trial does not.
+        if (! $isTrial && (float) $price > 0 && empty($validated['stripe_payment_method_id'])) {
+            return response()->json([
+                'message' => 'A payment method is required for this plan.',
+            ], 422);
+        }
 
-        $subscription = Subscription::create([
-            'user_id' => $user->id,
-            'plan' => $validated['plan'],
-            'price' => $prices[$validated['plan']],
-            'billing_cycle' => $validated['billing_cycle'],
-            'status' => $validated['plan'] === 'free_trial' ? 'trial' : 'active',
-            'trial_days' => $validated['plan'] === 'free_trial' ? 30 : null,
-            'started_at' => now(),
-            'renews_at' => $validated['plan'] === 'free_trial' ? now()->addDays(30) : now()->addMonth(),
-            // 'stripe_subscription_id' => $stripeSubscription->id,
-        ]);
+        $subscription = DB::transaction(function () use ($user, $plan, $validated, $isTrial, $price) {
+            // TODO: create the real Stripe subscription here (with trial_period_days
+            // = $plan->trial_days when $isTrial) and store its id below.
 
-        $user->update([
-            'subscription_plan' => $validated['plan'],
-            'subscription_status' => $subscription->status,
-        ]);
+            $subscription = Subscription::create([
+                'user_id' => $user->id,
+                'plan_id' => $plan->id,
+                'price' => $price,
+                'billing_cycle' => $validated['billing_cycle'],
+                'status' => $isTrial ? 'trial' : 'active',
+                'trial_days' => $plan->trial_days,
+                'started_at' => now(),
+                'renews_at' => $isTrial ? now()->addDays($plan->trial_days) : now()->addMonth(),
+                // 'stripe_subscription_id' => $stripeSubscription->id,
+            ]);
 
-        return response()->json($subscription, 201);
+            $user->update([
+                'plan_id' => $plan->id,
+                'subscription_status' => $subscription->status,
+            ]);
+
+            return $subscription;
+        });
+
+        return response()->json($subscription->load('plan'), 201);
     }
 
     /**
@@ -84,16 +97,19 @@ class SubscriptionController extends Controller
      */
     public function cancel(Request $request): JsonResponse
     {
-        $subscription = $request->user()->activeSubscription;
+        $user = $request->user();
+        $subscription = $user->activeSubscription;
 
         if (! $subscription) {
             return response()->json(['message' => 'No active subscription'], 404);
         }
 
-        // TODO: cancel on Stripe's side too: app(StripeService::class)->cancel($subscription->stripe_subscription_id);
+        // TODO: cancel on Stripe too: app(StripeService::class)->cancel($subscription->stripe_subscription_id);
 
-        $subscription->update(['status' => 'cancelled', 'cancelled_at' => now()]);
-        $request->user()->update(['subscription_status' => 'cancelled']);
+        DB::transaction(function () use ($user, $subscription) {
+            $subscription->update(['status' => 'cancelled', 'cancelled_at' => now()]);
+            $user->update(['subscription_status' => 'cancelled']);
+        });
 
         return response()->json(['message' => 'Subscription cancelled']);
     }
