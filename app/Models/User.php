@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -111,6 +112,12 @@ class User extends Authenticatable
         'otp_code',
         'email_encrypted',
         'phone_encrypted',
+    ];
+
+    // Expose the safee_id alias (= safee_pin) in every array/JSON response so
+    // clients can read either name. See the safeeId() accessor below.
+    protected $appends = [
+        'safee_id',
     ];
 
     protected function casts(): array
@@ -290,6 +297,20 @@ class User extends Authenticatable
         } while (static::where('safee_pin', $pin)->exists());
 
         return $pin;
+    }
+
+    /**
+     * `safee_id` is an alias of `safee_pin` — there is only one column
+     * (safee_pin), and reading or writing either name touches the same value.
+     * Note: DB-level queries must still use `safee_pin` (e.g.
+     * `where('safee_pin', ...)`), because accessors don't apply inside SQL.
+     */
+    protected function safeeId(): Attribute
+    {
+        return Attribute::make(
+            get: fn () => $this->safee_pin,
+            set: fn ($value) => ['safee_pin' => $value],
+        );
     }
 
     // ── Display accessors (admin listing UI) ───────────────

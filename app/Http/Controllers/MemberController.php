@@ -28,7 +28,7 @@ class MemberController extends Controller
             ], 422);
         }
 
-        $user = User::where('safee_id', $pin)
+        $user = User::where('safee_pin', $pin)
             ->where('status', 'active')
             ->first();
 
@@ -80,7 +80,7 @@ class MemberController extends Controller
     {
         $code = strtoupper(trim($request->query('code', '')));
 
-        $user = User::where('safee_id', $code)
+        $user = User::where('safee_pin', $code)
             ->where('status', 'active')
             ->first();
 
@@ -191,7 +191,7 @@ class MemberController extends Controller
         return [
             'id'                => $user->id,
             'name'              => $user->display_name ?? 'SAFEE User',
-            'safeePIN'          => $user->safee_id,
+            'safeePIN'          => $user->safee_pin,
             'avatarUrl'         => $user->avatar_url,
             'trustScore'        => (int) ($user->trust_score ?? 0),
             'verificationLevel' => VerificationLevelResolver::fromUser($user->kyc_status, $user->trust_tier),
