@@ -47,6 +47,15 @@ class MemberController extends Controller
             ], 422);
         }
 
+        // Expired / cancelled trial → search is disabled until they pay.
+        if (! app(PlanEntitlements::class)->subscriptionActive($request->user())) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Your plan has expired. Subscribe to continue searching members.',
+                'subscription_required' => true,
+            ], 403);
+        }
+
         if ($this->pinSearchLimitReached($request->user())) {
             return response()->json([
                 'success' => false,

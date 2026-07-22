@@ -10,7 +10,7 @@ class ProcessSubscriptionTrials extends Command
 {
     protected $signature = 'subscriptions:process-trials';
 
-    protected $description = 'Convert expired free-trial subscriptions to active and trigger their first charge';
+    protected $description = 'Expire free-trial subscriptions whose trial period has ended';
 
     public function handle(): int
     {
@@ -21,28 +21,23 @@ class ProcessSubscriptionTrials extends Command
             ->get();
 
         if ($due->isEmpty()) {
-            $this->info('No trials due for conversion.');
+            $this->info('No trials due for expiry.');
             return self::SUCCESS;
         }
 
         foreach ($due as $subscription) {
+            // Trials are not auto-charged — they expire, which disables
+            // search/chat until the user pays for a plan (see the subscribe
+            // endpoint + PlanEntitlements::subscriptionActive).
             DB::transaction(function () use ($subscription) {
-                // TODO: charge the first real payment via Stripe here
-                // (amount = $subscription->price). If the charge fails, mark
-                // the subscription 'expired' instead of 'active'.
-
-                $subscription->update([
-                    'status' => 'active',
-                    'renews_at' => now()->addMonth(),
-                ]);
-
-                $subscription->user?->update(['subscription_status' => 'active']);
+                $subscription->update(['status' => 'expired']);
+                $subscription->user?->update(['subscription_status' => 'expired']);
             });
 
-            $this->line("  Subscription #{$subscription->id} (user {$subscription->user_id}) → active.");
+            $this->line("  Subscription #{$subscription->id} (user {$subscription->user_id}) → expired.");
         }
 
-        $this->info($due->count().' trial(s) converted to active.');
+        $this->info($due->count().' trial(s) expired.');
         return self::SUCCESS;
     }
 }

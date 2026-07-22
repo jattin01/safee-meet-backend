@@ -24,6 +24,16 @@ class PlanEntitlements
             : collect();
     }
 
+    /**
+     * Is the user's subscription currently usable? Trial and active count;
+     * expired/cancelled/not_subscribed do not — those gate off search/chat
+     * until the user pays.
+     */
+    public function subscriptionActive(User $user): bool
+    {
+        return in_array($user->subscription_status, ['trial', 'active'], true);
+    }
+
     /** Is a boolean feature included in the user's plan? */
     public function has(User $user, string $slug): bool
     {

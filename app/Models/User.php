@@ -49,6 +49,12 @@ class User extends Authenticatable
                 $user->id = (string) Str::ulid();
             }
         });
+
+        // Every new user starts on the 100-day free trial (single choke point
+        // for all registration paths). See SubscriptionService::startFreeTrial.
+        static::created(function (User $user): void {
+            app(\App\Services\SubscriptionService::class)->startFreeTrial($user);
+        });
     }
 
     protected $fillable = [
