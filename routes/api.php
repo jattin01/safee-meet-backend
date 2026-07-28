@@ -14,6 +14,8 @@ use App\Http\Controllers\MemberController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\SosController;
 use App\Http\Controllers\Api\SubscriptionController;
+use App\Http\Controllers\Api\StripeWebhookController;
+use App\Http\Controllers\Api\NotificationController;
 
 /*
 |--------------------------------------------------------------------------
@@ -43,6 +45,10 @@ Route::prefix('v1')->group(function (): void {
         Route::post('verify-otp', [PhoneOtpAuthController::class, 'verifyOtp'])->middleware('throttle:10,1');
         // Route::get('home',[ProfileController::class,'home'])->middleware('throttle:5,1');
     });
+
+    // ── Stripe webhook — Stripe calls this directly, no Sanctum token; the
+    // signature check inside StripeWebhookController is the trust boundary ──
+    Route::post('webhooks/stripe', StripeWebhookController::class);
 
     // ── Everything below requires a valid Sanctum token ─────────────────────
     Route::middleware('auth:sanctum')->group(function (): void {
@@ -97,6 +103,15 @@ Route::prefix('v1')->group(function (): void {
             Route::get('qr', [MemberController::class, 'searchByQR']);
             Route::get('recent-searches', [MemberController::class, 'recentSearches']);
         });
+
+        // Notifications — specific routes before the {notification} wildcard.
+        Route::get('/notifications', [NotificationController::class, 'index']);
+        Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+        Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);
+        Route::post('/notifications/{notification}/read', [NotificationController::class, 'markRead']);
+        Route::delete('/notifications/{notification}', [NotificationController::class, 'destroy']);
+        Route::get('/notification-preferences', [NotificationController::class, 'preferences']);
+        Route::put('/notification-preferences', [NotificationController::class, 'updatePreferences']);
 
         Route::prefix('verification')->group(function (): void {
             Route::post('/submit', [VerificationController::class,'submitVerification',]);

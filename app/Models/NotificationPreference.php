@@ -3,14 +3,11 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class NotificationPreference extends Model
 {
-    public $incrementing = false;
-    protected $keyType   = 'string';
-
     protected $fillable = [
-        'id',
         'user_id',
         'push_enabled',
         'email_enabled',
@@ -19,7 +16,23 @@ class NotificationPreference extends Model
         'sos_alerts',
         'chat_notifications',
         'marketing_emails',
-        'created_at',
-        'updated_at',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'push_enabled' => 'boolean',
+            'email_enabled' => 'boolean',
+            'sms_enabled' => 'boolean',
+            'meeting_alerts' => 'boolean',
+            'sos_alerts' => 'boolean',
+            'chat_notifications' => 'boolean',
+            'marketing_emails' => 'boolean',
+        ];
+    }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
 }

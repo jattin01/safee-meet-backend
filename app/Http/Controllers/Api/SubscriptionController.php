@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Feature;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
+use App\Services\StripeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -13,6 +14,10 @@ use Illuminate\Validation\Rule;
 
 class SubscriptionController extends Controller
 {
+    public function __construct(private readonly StripeService $stripe)
+    {
+    }
+
     /**
      * GET /api/subscriptions/plans — "Plans" screen.
      * Everything is catalog-driven from subscription_plans.
@@ -92,8 +97,8 @@ class SubscriptionController extends Controller
     /**
      * POST /api/subscriptions/subscribe — pick a plan (by slug).
      * Price / trial length come from the catalog row, never hardcoded.
-     * Payment: this creates the local record; wire the real Stripe call at
-     * the TODO before flipping a paid plan to 'active'.
+     * Free-trial plans stay local-only (no card needed); paid plans create a
+     * real Stripe subscription and may come back needing 3DS confirmation.
      */
     public function subscribe(Request $request): JsonResponse
     {
@@ -117,20 +122,50 @@ class SubscriptionController extends Controller
             ], 422);
         }
 
-        $subscription = DB::transaction(function () use ($user, $plan, $validated, $isTrial, $price) {
-            // TODO: create the real Stripe subscription here (with trial_period_days
-            // = $plan->trial_days when $isTrial) and store its id below.
+        $needsStripe = ! $isTrial && (float) $price > 0;
+        $stripeCustomer = null;
+        $stripeSubscription = null;
+
+        if ($needsStripe) {
+            $priceId = $this->stripe->resolvePriceId($plan, $validated['billing_cycle']);
+
+            if (! $priceId) {
+                return response()->json([
+                    'message' => "Plan '{$plan->slug}' has no Stripe price configured for {$validated['billing_cycle']} billing.",
+                ], 422);
+            }
+
+            $stripeCustomer = $this->stripe->createOrGetCustomer($user);
+            $stripeSubscription = $this->stripe->createSubscription(
+                $stripeCustomer,
+                $priceId,
+                $validated['stripe_payment_method_id'],
+                null,
+            );
+        }
+
+        $subscription = DB::transaction(function () use ($user, $plan, $validated, $isTrial, $price, $stripeCustomer, $stripeSubscription) {
+            // A freshly created Stripe subscription is 'incomplete' until its
+            // first invoice is paid — only 'active'/'trialing' from Stripe
+            // may grant entitlements; everything else must stay non-active
+            // here too, or scopeActive() would let an unpaid user in.
+            $status = match (true) {
+                $isTrial => 'trial',
+                $stripeSubscription?->status === 'active' => 'active',
+                default => 'incomplete',
+            };
 
             $subscription = Subscription::create([
                 'user_id' => $user->id,
                 'plan_id' => $plan->id,
                 'price' => $price,
                 'billing_cycle' => $validated['billing_cycle'],
-                'status' => $isTrial ? 'trial' : 'active',
+                'status' => $status,
                 'trial_days' => $plan->trial_days,
                 'started_at' => now(),
                 'renews_at' => $isTrial ? now()->addDays($plan->trial_days) : now()->addMonth(),
-                // 'stripe_subscription_id' => $stripeSubscription->id,
+                'stripe_customer_id' => $stripeCustomer?->id,
+                'stripe_subscription_id' => $stripeSubscription?->id,
             ]);
 
             $user->update([
@@ -141,7 +176,18 @@ class SubscriptionController extends Controller
             return $subscription;
         });
 
-        return response()->json($subscription->load('plan'), 201);
+        $response = $subscription->load('plan')->toArray();
+
+        // App must confirm this client_secret via Stripe SDK (confirmPayment)
+        // before the subscription becomes chargeable; the webhook then flips
+        // the local status to 'active' once invoice.paid fires.
+        $confirmationSecret = $stripeSubscription?->latest_invoice?->confirmation_secret;
+        if ($confirmationSecret) {
+            $response['payment_intent_client_secret'] = $confirmationSecret->client_secret;
+            $response['payment_intent_status'] = $stripeSubscription->status;
+        }
+
+        return response()->json($response, 201);
     }
 
     /**
@@ -156,7 +202,9 @@ class SubscriptionController extends Controller
             return response()->json(['message' => 'No active subscription'], 404);
         }
 
-        // TODO: cancel on Stripe too: app(StripeService::class)->cancel($subscription->stripe_subscription_id);
+        if ($subscription->stripe_subscription_id) {
+            $this->stripe->cancelSubscription($subscription->stripe_subscription_id);
+        }
 
         DB::transaction(function () use ($user, $subscription) {
             $subscription->update(['status' => 'cancelled', 'cancelled_at' => now()]);

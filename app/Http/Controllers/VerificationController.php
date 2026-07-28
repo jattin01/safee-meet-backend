@@ -86,8 +86,8 @@ class VerificationController extends Controller
             if ($user = $verification->user) {
                 $user->update([
                     'verification_level' => 'level1',
-                    'kyc_status' => 'verified',
-                    'kyc_verified_at' => now(),
+                    // 'kyc_status' => 'verified',
+                    // 'kyc_verified_at' => now(),
                 ]);
 
                 TrustScoreCalculator::recalculate($user);

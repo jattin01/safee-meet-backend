@@ -62,12 +62,9 @@ class AuthService
                 'updated_at'      => now(),
             ]);
 
-            // Create default notification preferences
-            $user->notificationPreferences()->create([
-                'id'         => (string) Str::ulid(),
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
+            // Create default notification preferences (bigint auto-increment id;
+            // all toggles default to true via the table schema).
+            $user->notificationPreferences()->create([]);
 
             return $user;
         });

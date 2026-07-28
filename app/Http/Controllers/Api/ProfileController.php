@@ -39,7 +39,7 @@ class ProfileController extends Controller
             'meetings_count' => $meetingsCount,
             'rating' => $user->rating,
             'safee_pin' => $user->safee_pin,
-            'unread_notifications' => 0, // TODO: wire to a notifications table if/when built
+            'unread_notifications' => $user->notifications()->whereNull('read_at')->count(),
             'recent_meetings' => $recentMeetings,
         ]);
     }
