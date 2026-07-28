@@ -53,4 +53,22 @@ class AdminController extends Controller
 
         return redirect()->route('admins.index')->with('success', 'Admin created successfully.');
     }
+
+    public function updateStatus(Request $request, Admin $admin): JsonResponse
+    {
+        $validated = $request->validate([
+            'status' => ['required', 'boolean'],
+        ]);
+
+        // An admin can't deactivate their own account and lock themselves out.
+        if (! $validated['status'] && $admin->id === $request->user('admin')->id) {
+            return response()->json([
+                'message' => 'You cannot deactivate your own account.',
+            ], 422);
+        }
+
+        $admin->update(['status' => $validated['status']]);
+
+        return response()->json(['status' => $admin->status]);
+    }
 }

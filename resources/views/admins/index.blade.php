@@ -194,9 +194,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td class="px-5 py-4 text-gray-300">${escapeHtml(admin.role?.name || '—')}</td>
                     <td class="px-5 py-4 text-gray-400">${escapeHtml(joined)}</td>
                     <td class="px-5 py-4">
-                        <span class="rounded-full px-3 py-1 text-xs ${active ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'}">
+                        <button type="button" class="status-toggle rounded-full px-3 py-1 text-xs transition ${active ? 'bg-green-500/15 text-green-400 hover:bg-green-500/25' : 'bg-red-500/15 text-red-400 hover:bg-red-500/25'}"
+                            data-admin-id="${admin.id}" data-active="${active ? '1' : '0'}">
                             ${active ? 'Active' : 'Inactive'}
-                        </span>
+                        </button>
                     </td>
                 </tr>
             `;
@@ -240,6 +241,49 @@ document.addEventListener('DOMContentLoaded', () => {
 
     previous.addEventListener('click', () => loadPage(currentPage - 1));
     next.addEventListener('click', () => loadPage(currentPage + 1));
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+
+    body.addEventListener('click', async (event) => {
+        const button = event.target.closest('.status-toggle');
+        if (!button) return;
+
+        const adminId = button.dataset.adminId;
+        const wasActive = button.dataset.active === '1';
+        const nextStatus = !wasActive;
+
+        if (!window.confirm(`${nextStatus ? 'Activate' : 'Deactivate'} this admin?`)) {
+            return;
+        }
+
+        button.disabled = true;
+        try {
+            const response = await fetch(`/admins/${adminId}/status`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json',
+                    'X-CSRF-TOKEN': csrfToken,
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: JSON.stringify({ status: nextStatus }),
+            });
+
+            const result = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error(result.message || 'Unable to update status.');
+            }
+
+            button.dataset.active = nextStatus ? '1' : '0';
+            button.textContent = nextStatus ? 'Active' : 'Inactive';
+            button.className = `status-toggle rounded-full px-3 py-1 text-xs transition ${nextStatus ? 'bg-green-500/15 text-green-400 hover:bg-green-500/25' : 'bg-red-500/15 text-red-400 hover:bg-red-500/25'}`;
+        } catch (error) {
+            alert(error.message);
+        } finally {
+            button.disabled = false;
+        }
+    });
 
     loadPage(1);
 });

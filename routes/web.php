@@ -31,6 +31,7 @@ Route::middleware('auth:admin')->group(function () {
     Route::get('/admins', [AdminController::class, 'index'])->name('admins.index');
     Route::get('/admins/data', [AdminController::class, 'data'])->name('admins.data');
     Route::post('/admins', [AdminController::class, 'store'])->name('admins.store');
+    Route::post('/admins/{admin}/status', [AdminController::class, 'updateStatus'])->name('admins.status.update');
     Route::get('/verification', [VerificationController::class, 'index'])->name('verification');
     Route::get('/verification/{verification}', [VerificationController::class, 'show'])->name('verification.show');
     Route::get('/verification/{verification}/{asset}', [VerificationController::class, 'showAsset'])
@@ -52,6 +53,7 @@ Route::middleware('auth:admin')->group(function () {
     Route::get('/revenue', [RevenueController::class, 'index'])->name('revenue');
     Route::get('/terms', [TermsController::class, 'index'])->name('terms.index');
     Route::get('/users/{id}', [UserController::class, 'show'])->name('users.show');
+    Route::post('/users/{id}/status', [UserController::class, 'updateStatus'])->name('users.status.update');
     Route::post('/terms', [TermsController::class, 'update'])->name('terms.update');
 
     Route::get('/dashboard', [AdminDashboardController::class, 'index'])

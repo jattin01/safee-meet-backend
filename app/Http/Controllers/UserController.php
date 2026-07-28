@@ -46,12 +46,46 @@ class UserController extends Controller
                 'plan_label' => $user->plan_label,
                 'trust_score' => $user->trust_score !== null ? round($user->trust_score) : null,
                 'created_at' => $user->created_at,
+                'status' => $user->status,
                 'status_label' => $user->status_label,
                 'status_color' => $user->status_color,
                 'show_url' => route('users.show', $user->id),
             ]);
 
             return response()->json($users);
+        }
+
+        /**
+         * Quick status change from the users list/profile (active/inactive/
+         * suspended). Account deletion is intentionally not offered here —
+         * it's a separate, more deliberate action.
+         */
+        public function updateStatus(Request $request, $id): JsonResponse
+        {
+            $validated = $request->validate([
+                'status' => ['required', 'in:active,inactive,suspended'],
+                'reason' => ['nullable', 'string', 'max:500'],
+            ]);
+
+            $user = User::findOrFail($id);
+
+            $user->status = $validated['status'];
+
+            if ($validated['status'] === 'suspended') {
+                $user->account_suspended_at = now();
+                $user->suspended_reason = $validated['reason'] ?? null;
+            } else {
+                $user->account_suspended_at = null;
+                $user->suspended_reason = null;
+            }
+
+            $user->save();
+
+            return response()->json([
+                'status' => $user->status,
+                'status_label' => $user->status_label,
+                'status_color' => $user->status_color,
+            ]);
         }
 
         public function show($id)

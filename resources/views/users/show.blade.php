@@ -99,6 +99,25 @@
         </div>
 
         <div class="mt-5 bg-[#000] rounded-3xl p-5 text-white shadow-lg">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div class="text-left">
+                    <p class="font-bold text-white mb-1">Account Status</p>
+                    <p id="status-message" class="text-xs text-slate-500">Current status: <span id="status-current" class="font-semibold" style="color:{{ $user->status_color }};">{{ $user->status_label }}</span></p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <select id="account-status-select" class="rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]">
+                        <option value="active" @selected($user->status === 'active')>Active</option>
+                        <option value="inactive" @selected($user->status === 'inactive')>Inactive</option>
+                        <option value="suspended" @selected($user->status === 'suspended')>Suspended</option>
+                    </select>
+                    <button type="button" id="account-status-save" class="rounded-lg bg-[#DC131C] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#b50f16]">
+                        Save
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-5 bg-[#000] rounded-3xl p-5 text-white shadow-lg">
             @if($subscription)
             <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div class="text-left">
@@ -256,5 +275,58 @@
 
 
 </div>
+@endsection
 
+@section('scripts')
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const select = document.getElementById('account-status-select');
+    const saveButton = document.getElementById('account-status-save');
+    const currentLabel = document.getElementById('status-current');
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+    const initialStatus = select.value;
+
+    saveButton.addEventListener('click', async () => {
+        const newStatus = select.value;
+
+        if (newStatus === initialStatus) return;
+
+        let reason = null;
+        if (newStatus === 'suspended') {
+            reason = window.prompt('Reason for suspending this user (optional):') || null;
+        } else if (!window.confirm(`Change this user's status to "${newStatus}"?`)) {
+            select.value = initialStatus;
+            return;
+        }
+
+        saveButton.disabled = true;
+        try {
+            const response = await fetch(window.location.pathname + '/status', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json',
+                    'X-CSRF-TOKEN': csrfToken,
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: JSON.stringify({ status: newStatus, reason }),
+            });
+
+            const result = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error(result.message || 'Unable to update status.');
+            }
+
+            currentLabel.textContent = result.status_label;
+            currentLabel.style.color = result.status_color;
+        } catch (error) {
+            alert(error.message);
+            select.value = initialStatus;
+        } finally {
+            saveButton.disabled = false;
+        }
+    });
+});
+</script>
 @endsection

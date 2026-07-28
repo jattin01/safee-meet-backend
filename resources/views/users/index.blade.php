@@ -106,7 +106,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td class="px-5 py-4 text-[#fff] font-medium">${user.trust_score !== null ? escapeHtml(user.trust_score) : '—'}</td>
                 <td class="px-5 py-4 text-[#fff] font-medium">${escapeHtml(joinedLabel(user.created_at))}</td>
                 <td class="px-5 py-4 text-[#fff] font-medium">
-                    <span style="background:${escapeHtml(user.status_color)}26; color:${escapeHtml(user.status_color)}; font-size:11px; padding:3px 12px; border-radius:999px;">${escapeHtml(user.status_label)}</span>
+                    <select data-user-id="${user.id}" class="status-select" style="background:${escapeHtml(user.status_color)}26; color:${escapeHtml(user.status_color)}; font-size:11px; padding:3px 8px; border-radius:999px; border:1px solid ${escapeHtml(user.status_color)}4d; outline:none;">
+                        <option value="active" ${user.status === 'active' ? 'selected' : ''}>Active</option>
+                        <option value="inactive" ${user.status === 'inactive' ? 'selected' : ''}>Inactive</option>
+                        <option value="suspended" ${user.status === 'suspended' ? 'selected' : ''}>Suspended</option>
+                        ${user.status === 'deleted' ? '<option value="deleted" selected>Deleted</option>' : ''}
+                    </select>
                 </td>
                 <td class="px-5 py-4 text-[#fff] font-medium">
                     <a href="${user.show_url}" class="see-more-btn inline-flex items-center gap-1 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-500 no-underline transition hover:bg-red-500 hover:text-white">See More</a>
@@ -152,6 +157,51 @@ document.addEventListener('DOMContentLoaded', () => {
 
     previous.addEventListener('click', () => loadPage(currentPage - 1));
     next.addEventListener('click', () => loadPage(currentPage + 1));
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+
+    body.addEventListener('change', async (event) => {
+        const select = event.target.closest('.status-select');
+        if (!select) return;
+
+        const userId = select.dataset.userId;
+        const previousValue = select.dataset.previousValue || select.querySelector('option[selected]')?.value;
+        const newStatus = select.value;
+
+        let reason = null;
+        if (newStatus === 'suspended') {
+            reason = window.prompt('Reason for suspending this user (optional):') || null;
+        } else if (!window.confirm(`Change this user's status to "${newStatus}"?`)) {
+            select.value = previousValue;
+            return;
+        }
+
+        select.disabled = true;
+        try {
+            const response = await fetch(`/users/${userId}/status`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json',
+                    'X-CSRF-TOKEN': csrfToken,
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: JSON.stringify({ status: newStatus, reason }),
+            });
+
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({}));
+                throw new Error(error.message || 'Unable to update status.');
+            }
+
+            select.dataset.previousValue = newStatus;
+        } catch (error) {
+            alert(error.message);
+            select.value = previousValue;
+        } finally {
+            select.disabled = false;
+        }
+    });
 
     loadPage(1);
 });

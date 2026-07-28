@@ -8,40 +8,22 @@
     {{-- Page Header --}}
     <div style="margin-bottom:24px;">
         <h1 style="font-size:22px; font-weight:700; color:#fff; margin:0 0 4px 0;">Subscription Management</h1>
-        <p style="font-size:12px; color:#6b7280; margin:0;">$284,721 MRR · 23% growth this month</p>
+        <p style="font-size:12px; color:#6b7280; margin:0;">${{ number_format($mrr, 2) }} MRR</p>
     </div>
 
     {{-- Stat Cards --}}
+    @php
+        $statColors = ['#fff', '#3b82f6', '#ef4444', '#f59e0b', '#22c55e', '#a855f7'];
+    @endphp
     <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-[15px]" style=" margin-bottom:24px;">
-
-        {{-- Free Users --}}
-        <div style="background:#000; border:1px solid #000; border-radius:12px; padding:20px;">
-            <div style="font-size:26px; font-weight:700; color:#fff; margin-bottom:4px;">12,847</div>
-            <div style="font-size:11px; color:#9ca3af; margin-bottom:6px;">Free Users</div>
-            <div style="font-size:11px; color:#22c55e;">+8% this month</div>
-        </div>
-
-        {{-- Basic --}}
-        <div style="background:#000; border:1px solid #000; border-radius:12px; padding:20px;">
-            <div style="font-size:26px; font-weight:700; color:#3b82f6; margin-bottom:4px;">18,204</div>
-            <div style="font-size:11px; color:#9ca3af; margin-bottom:6px;">Basic</div>
-            <div style="font-size:11px; color:#22c55e;">+14% this month</div>
-        </div>
-
-        {{-- Premium --}}
-        <div style="background:#000; border:1px solid #000; border-radius:12px; padding:20px;">
-            <div style="font-size:26px; font-weight:700; color:#ef4444; margin-bottom:4px;">13,892</div>
-            <div style="font-size:11px; color:#9ca3af; margin-bottom:6px;">Premium</div>
-            <div style="font-size:11px; color:#22c55e;">+31% this month</div>
-        </div>
-
-        {{-- Professional --}}
-        <div style="background:#000; border:1px solid #000; border-radius:12px; padding:20px;">
-            <div style="font-size:26px; font-weight:700; color:#f59e0b; margin-bottom:4px;">2,348</div>
-            <div style="font-size:11px; color:#9ca3af; margin-bottom:6px;">Professional</div>
-            <div style="font-size:11px; color:#22c55e;">+22% this month</div>
-        </div>
-
+        @foreach($plans as $index => $plan)
+            <div style="background:#000; border:1px solid #000; border-radius:12px; padding:20px;">
+                <div style="font-size:26px; font-weight:700; color:{{ $statColors[$index % count($statColors)] }}; margin-bottom:4px;">
+                    {{ number_format($userCountsByPlan[$plan->id] ?? 0) }}
+                </div>
+                <div style="font-size:11px; color:#9ca3af; margin-bottom:6px;">{{ $plan->name }}</div>
+            </div>
+        @endforeach
     </div>
 
     {{-- Revenue by Plan Chart --}}
@@ -107,7 +89,19 @@
 
 </div-->
 
-<div x-data="{ activeTab: 'monthly', showForm: false, showEditModal: false, editingPlan: { id: null, name: '', monthly_price: '', yearly_price: '', trial_days: '', features: '' } }" class="mt-[30px]">
+<div x-data="{
+        activeTab: 'monthly',
+        showForm: {{ $errors->any() && old('action', 'store') === 'store' ? 'true' : 'false' }},
+        showEditModal: {{ $errors->any() && old('action') === 'update' ? 'true' : 'false' }},
+        editingPlan: {
+            id: {{ old('action') === 'update' ? (int) old('id') : 'null' }},
+            name: @js(old('action') === 'update' ? old('name') : ''),
+            monthly_price: @js(old('action') === 'update' ? old('monthly_price') : ''),
+            yearly_price: @js(old('action') === 'update' ? old('yearly_price') : ''),
+            trial_days: @js(old('action') === 'update' ? old('trial_days') : ''),
+            features: @js(old('action') === 'update' ? old('features') : '')
+        }
+    }" class="mt-[30px]">
     @if(session('success'))
         <div class="mb-4 rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-400">
             {{ session('success') }}
@@ -139,28 +133,37 @@
 
     <div x-show="showForm" x-cloak class="mt-6 rounded-2xl border border-[#212529] bg-[#000] p-5">
         <h3 class="mb-4 text-lg font-semibold text-white">Create a new subscription plan</h3>
+        @if($errors->any() && old('action', 'store') === 'store')
+            <div class="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+                <ul class="list-inside list-disc space-y-1">
+                    @foreach($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
         <form method="POST" action="{{ route('subscription') }}" class="grid gap-4 md:grid-cols-2">
             @csrf
             <input type="hidden" name="action" value="store">
             <div>
                 <label class="mb-2 block text-sm text-gray-400" for="name">Plan name</label>
-                <input id="name" name="name" required class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="Enterprise">
+                <input id="name" name="name" value="{{ old('action', 'store') === 'store' ? old('name') : '' }}" required class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="Enterprise">
             </div>
             <div>
                 <label class="mb-2 block text-sm text-gray-400" for="monthly_price">Monthly price</label>
-                <input id="monthly_price" name="monthly_price" type="number" step="0.01" min="0" required class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="29.00">
+                <input id="monthly_price" name="monthly_price" type="number" step="0.01" min="0" value="{{ old('action', 'store') === 'store' ? old('monthly_price') : '' }}" required class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="29.00">
             </div>
             <div>
                 <label class="mb-2 block text-sm text-gray-400" for="yearly_price">Yearly price</label>
-                <input id="yearly_price" name="yearly_price" type="number" step="0.01" min="0" required class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="290.00">
+                <input id="yearly_price" name="yearly_price" type="number" step="0.01" min="0" value="{{ old('action', 'store') === 'store' ? old('yearly_price') : '' }}" required class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="290.00">
             </div>
             <div class="md:col-span-2">
                 <label class="mb-2 block text-sm text-gray-400" for="trial_days">Free trial days <span class="text-gray-600">(leave blank for no trial)</span></label>
-                <input id="trial_days" name="trial_days" type="number" min="0" step="1" class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="100">
+                <input id="trial_days" name="trial_days" type="number" min="0" step="1" value="{{ old('action', 'store') === 'store' ? old('trial_days') : '' }}" class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="100">
             </div>
             <div class="md:col-span-2">
-                <label class="mb-2 block text-sm text-gray-400" for="features">Features (one per line)</label>
-                <textarea id="features" name="features" rows="4" class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="Unlimited projects&#10;Priority support"></textarea>
+                <label class="mb-2 block text-sm text-gray-400" for="features">Features (one per line) <span class="text-gray-600">(at least one required)</span></label>
+                <textarea id="features" name="features" rows="4" required class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="Unlimited projects&#10;Priority support">{{ old('action', 'store') === 'store' ? old('features') : '' }}</textarea>
             </div>
             <div class="md:col-span-2 flex justify-end">
                 <button type="submit" class="rounded-lg bg-[#DC131C] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#b50f16]">
@@ -192,17 +195,22 @@
                     </form>
                 <h2>{{ $plan['name'] }}</h2>
                 <h4 class="text-white text-[30px] font-bold mt-3">${{ number_format($plan['monthly_price'], 2) }}</h4>
+                @if(!empty($plan['trial_days']))
+                    <span class="inline-block mt-2 rounded-md bg-green-500/10 border border-green-500/30 px-2 py-0.5 text-xs font-semibold text-green-400">
+                        {{ $plan['trial_days'] }} day{{ (int) $plan['trial_days'] === 1 ? '' : 's' }} free trial
+                    </span>
+                @endif
                 <ul class="pricing-list my-3 flex flex-col gap-[10px] text-[14px]">
                     @foreach($plan['features'] as $feature)
                         <li><i class="fa-regular fa-circle-check"></i> {{ $feature }}</li>
                     @endforeach
                 </ul>
-                <div class="mt-[10px] flex flex-col gap-2">
+                <!-- <div class="mt-[10px] flex flex-col gap-2">
                     <button class="mt-3 w-full text-white text-sm font-semibold px-4 py-2 rounded-lg transition {{ $plan['name'] === 'Basic' ? 'bg-[#ef4444]' : 'bg-[#ef4444]' }}">
                         {{ $plan['name'] === 'Basic' ? 'Buy Plan' : 'Buy Plan' }}
                     </button>
                     
-                </div>
+                </div> -->
             </div>
 
             <div x-show="activeTab === 'yearly'" class="border border-[10px] border-[#212529] bg-[#1a1a1a] rounded-2xl p-4 relative" x-cloak>
@@ -214,15 +222,28 @@
                     class="absolute top-2 right-12 rounded-lg border border-blue-400 w-[30px] h-[30px] p-[0px] text-[12px] font-semibold text-blue-400 transition hover:bg-blue-400 hover:text-white">
                     <i class="fa-regular fa-pen-to-square"></i>
                 </button>
+                <form method="POST" action="{{ route('subscription') }}" class="w-full">
+                        @csrf
+                        <input type="hidden" name="action" value="delete">
+                        <input type="hidden" name="id" value="{{ $plan['id'] }}">
+                        <button type="submit" class="absolute top-2 right-2 rounded-lg border border-red-500 w-[30px] h-[30px] p-[0px] text-[12px] font-semibold text-red-400 transition hover:bg-red-500 hover:text-white">
+                            <i class="fa-regular fa-trash-can"></i>
+                        </button>
+                    </form>
                 <h2>{{ $plan['name'] }}</h2>
                 <h4 class="text-white text-[30px] font-bold mt-3">${{ number_format($plan['yearly_price'], 2) }}</h4>
                 <p class="text-sm text-[#ef4444] mb-3">Billed yearly</p>
+                @if(!empty($plan['trial_days']))
+                    <span class="inline-block mb-2 rounded-md bg-green-500/10 border border-green-500/30 px-2 py-0.5 text-xs font-semibold text-green-400">
+                        {{ $plan['trial_days'] }} day{{ (int) $plan['trial_days'] === 1 ? '' : 's' }} free trial
+                    </span>
+                @endif
                 <ul class="pricing-list my-3 flex flex-col gap-[10px] text-[14px]">
                     @foreach($plan['features'] as $feature)
                         <li><i class="fa-regular fa-circle-check"></i> {{ $feature }}</li>
                     @endforeach
                 </ul>
-                <div class="mt-[10px] flex flex-col gap-2">
+                <!-- <div class="mt-[10px] flex flex-col gap-2">
                     <button class="w-full text-white text-sm font-semibold px-4 py-2 rounded-lg transition {{ $plan['name'] === 'Basic' ? 'bg-[#22c55e]' : 'bg-[#ef4444]' }}">
                         {{ $plan['name'] === 'Basic' ? 'Current Plan' : 'Change Plan' }}
                     </button>
@@ -234,7 +255,7 @@
                             Delete
                         </button>
                     </form>
-                </div>
+                </div> -->
             </div>
         @endforeach
     </div>
@@ -248,6 +269,15 @@
                     <i class="fa-solid fa-xmark"></i>
                 </button>
             </div>
+            @if($errors->any() && old('action') === 'update')
+                <div class="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+                    <ul class="list-inside list-disc space-y-1">
+                        @foreach($errors->all() as $error)
+                            <li>{{ $error }}</li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
             <form method="POST" action="{{ route('subscription') }}" class="grid gap-4 md:grid-cols-2">
                 @csrf
                 <input type="hidden" name="action" value="update">
@@ -269,8 +299,8 @@
                     <input id="edit_trial_days" name="trial_days" type="number" min="0" step="1" x-model="editingPlan.trial_days" class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="100">
                 </div>
                 <div class="md:col-span-2">
-                    <label class="mb-2 block text-sm text-gray-400" for="edit_features">Features (one per line)</label>
-                    <textarea id="edit_features" name="features" rows="4" x-model="editingPlan.features" class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]"></textarea>
+                    <label class="mb-2 block text-sm text-gray-400" for="edit_features">Features (one per line) <span class="text-gray-600">(at least one required)</span></label>
+                    <textarea id="edit_features" name="features" rows="4" x-model="editingPlan.features" required class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]"></textarea>
                 </div>
                 <div class="md:col-span-2 flex justify-end gap-3">
                     <button type="button" @click="showEditModal = false" class="rounded-lg border border-[#2a2d3e] px-4 py-2 text-sm font-semibold text-gray-300 transition hover:bg-[#2a2d3e]">
