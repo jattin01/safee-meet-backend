@@ -11,6 +11,7 @@ class SubscriptionPlan extends Model
     protected $fillable = [
         'name', 'slug', 'monthly_price', 'yearly_price', 'trial_days',
         'pin_search_limit', 'features', 'icon', 'color', 'sort_order', 'is_active',
+        'monthly_stripe_price_id', 'yearly_stripe_price_id',
     ];
 
     protected function casts(): array

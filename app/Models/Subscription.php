@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Str;
 
 class Subscription extends Model
 {
@@ -13,8 +14,22 @@ class Subscription extends Model
     protected $fillable = [
         'user_id', 'plan_id', 'price', 'billing_cycle', 'status',
         'trial_days', 'started_at', 'renews_at', 'cancelled_at',
-        'stripe_customer_id', 'stripe_subscription_id',
+        'stripe_customer_id', 'stripe_subscription_id', 'subscription_id',
     ];
+
+    /**
+     * ULID handed to the app at subscribe time so it has a stable id to send
+     * back on the later payment-confirm/webhook step, without depending on
+     * the primary key (which is bigint on some deployments, char on others).
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (Subscription $subscription) {
+            if (empty($subscription->subscription_id)) {
+                $subscription->subscription_id = (string) Str::ulid();
+            }
+        });
+    }
 
     protected function casts(): array
     {
