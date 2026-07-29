@@ -56,6 +56,52 @@ class UserController extends Controller
         }
 
         /**
+         * CSV export of all users for the users-management table. Streams via
+         * chunkById so the full table can be exported without loading every
+         * row into memory at once.
+         */
+        public function export(): \Symfony\Component\HttpFoundation\StreamedResponse
+        {
+            $filename = 'users-'.now()->format('Y-m-d-His').'.csv';
+
+            $headers = [
+                'Content-Type' => 'text/csv',
+                'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+            ];
+
+            $callback = function () {
+                $handle = fopen('php://output', 'w');
+
+                fputcsv($handle, [
+                    'ID', 'Name', 'Contact', 'Safee Pin', 'Verification',
+                    'Plan', 'Trust Score', 'Status', 'Joined At',
+                ]);
+
+                User::query()
+                    ->with('plan')
+                    ->chunkById(500, function ($users) use ($handle) {
+                        foreach ($users as $user) {
+                            fputcsv($handle, [
+                                $user->id,
+                                $user->name ?: $user->display_name ?: 'Unnamed User',
+                                $user->email ?: $user->phone ?: '—',
+                                $user->safee_pin ?? $user->safee_id,
+                                $user->verification_label,
+                                $user->plan_label,
+                                $user->trust_score !== null ? round($user->trust_score) : '',
+                                $user->status_label,
+                                optional($user->created_at)->format('Y-m-d H:i:s'),
+                            ]);
+                        }
+                    });
+
+                fclose($handle);
+            };
+
+            return response()->streamDownload($callback, $filename, $headers);
+        }
+
+        /**
          * Quick status change from the users list/profile (active/inactive/
          * suspended). Account deletion is intentionally not offered here —
          * it's a separate, more deliberate action.

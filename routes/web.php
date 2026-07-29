@@ -28,6 +28,7 @@ Route::middleware('auth:admin')->group(function () {
     Route::post('/logout', [LoginController::class, 'logout'])->name('logout');
     Route::get('/users', [UserController::class, 'index'])->name('users');
     Route::get('/users/data', [UserController::class, 'data'])->name('users.data');
+    Route::get('/users/export', [UserController::class, 'export'])->name('users.export');
     Route::get('/admins', [AdminController::class, 'index'])->name('admins.index');
     Route::get('/admins/data', [AdminController::class, 'data'])->name('admins.data');
     Route::post('/admins', [AdminController::class, 'store'])->name('admins.store');

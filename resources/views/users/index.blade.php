@@ -11,9 +11,9 @@
             <h1 class="text-2xl font-bold text-white">User Management</h1>
             <p id="user-total" class="text-sm text-gray-400 mt-1">Loading users...</p>
         </div>
-        <button class="bg-red-500 hover:bg-red-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition">
+        <a href="{{ route('users.export') }}" class="bg-red-500 hover:bg-red-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition inline-block">
             Export CSV
-        </button>
+        </a>
     </div>
 
     {{-- Table Wrapper --}}

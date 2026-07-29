@@ -55,8 +55,8 @@ class MeetingController extends Controller
         abort_unless($meeting->status === 'scheduled', 422, 'Only scheduled meetings can be shared.');
 
         $meeting->load([
-            'host:id,name,phone',
-            'guest:id,name,phone',
+            'host:id,name,display_name,phone',
+            'guest:id,name,display_name,phone',
         ]);
 
         $emergencyContacts = $request->user()
@@ -80,12 +80,12 @@ class MeetingController extends Controller
                 'users' => [
                     'host' => [
                         'id' => $meeting->host?->id,
-                        'name' => $meeting->host?->name ?? 'SAFEE User',
+                        'name' => $meeting->host?->name ?: $meeting->host?->display_name ?: 'SAFEE User',
                         'phone' => $meeting->host?->phone,
                     ],
                     'guest' => [
                         'id' => $meeting->guest?->id,
-                        'name' => $meeting->guest?->name ?? 'SAFEE User',
+                        'name' => $meeting->guest?->name ?: $meeting->guest?->display_name ?: 'SAFEE User',
                         'phone' => $meeting->guest?->phone,
                     ],
                 ],
