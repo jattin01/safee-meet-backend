@@ -8,11 +8,11 @@
     {{-- Page Header --}}
     <div style="margin-bottom:24px;">
         <h1 style="font-size:22px; font-weight:700; color:#fff; margin:0 0 4px 0;">Subscription Management</h1>
-        <p style="font-size:12px; color:#6b7280; margin:0;">${{ number_format($mrr, 2) }} MRR</p>
+        <!-- <p style="font-size:12px; color:#6b7280; margin:0;">${{ number_format($mrr, 2) }} MRR</p> -->
     </div>
 
     {{-- Stat Cards --}}
-    @php
+    <!-- @php
         $statColors = ['#fff', '#3b82f6', '#ef4444', '#f59e0b', '#22c55e', '#a855f7'];
     @endphp
     <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-[15px]" style=" margin-bottom:24px;">
@@ -24,7 +24,7 @@
                 <div style="font-size:11px; color:#9ca3af; margin-bottom:6px;">{{ $plan->name }}</div>
             </div>
         @endforeach
-    </div>
+    </div> -->
 
     {{-- Revenue by Plan Chart --}}
     <!--div style="background:#000; border:1px solid #000; border-radius:12px; padding:24px;">
@@ -120,9 +120,9 @@
                 :class="activeTab === 'yearly' ? 'bg-[#DC131C] text-white' : 'bg-transparent text-gray-400 hover:text-white'"
                 class="text-sm font-semibold px-5 py-2 rounded-lg flex items-center gap-2 transition">
                 Annually
-                <span class="bg-green-400 text-white text-xs font-bold px-2 py-0.5 rounded-md">
+                <!-- <span class="bg-green-400 text-white text-xs font-bold px-2 py-0.5 rounded-md">
                     25% Off
-                </span>
+                </span> -->
             </button>
         </div>
 
