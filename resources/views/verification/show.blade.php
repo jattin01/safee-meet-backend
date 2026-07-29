@@ -3,7 +3,78 @@
 @section('title', 'Review Verification')
 
 @section('content')
-<style>[x-cloak] { display: none !important; }</style>
+<style>
+    [x-cloak] { display: none !important; }
+
+    .btn-approve, .btn-reject, .btn-confirm-reject, .btn-cancel {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 11px 22px;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.12s ease, opacity 0.12s ease;
+    }
+    .btn-approve svg, .btn-reject svg, .btn-confirm-reject svg, .btn-cancel svg {
+        width: 16px;
+        height: 16px;
+        flex-shrink: 0;
+    }
+
+    .btn-approve {
+        background: #22c55e;
+        color: #04140a;
+        border: 1px solid #22c55e;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }
+    .btn-approve:hover {
+        background: #16a34a;
+        border-color: #16a34a;
+        box-shadow: 0 4px 12px rgba(34,197,94,0.35);
+        transform: translateY(-1px);
+    }
+    .btn-approve:active { transform: translateY(0); box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+
+    .btn-reject {
+        background: rgba(239,68,68,0.1);
+        color: #f87171;
+        border: 1px solid rgba(239,68,68,0.5);
+    }
+    .btn-reject:hover {
+        background: rgba(239,68,68,0.2);
+        border-color: #ef4444;
+        box-shadow: 0 4px 12px rgba(239,68,68,0.25);
+        transform: translateY(-1px);
+    }
+    .btn-reject:active { transform: translateY(0); }
+
+    .btn-confirm-reject {
+        background: #ef4444;
+        color: #fff;
+        border: 1px solid #ef4444;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }
+    .btn-confirm-reject:hover {
+        background: #dc2626;
+        border-color: #dc2626;
+        box-shadow: 0 4px 12px rgba(239,68,68,0.35);
+        transform: translateY(-1px);
+    }
+    .btn-confirm-reject:active { transform: translateY(0); box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+
+    .btn-cancel {
+        background: transparent;
+        color: #9ca3af;
+        border: 1px solid #374151;
+    }
+    .btn-cancel:hover {
+        background: #1a1a1a;
+        color: #d1d5db;
+        border-color: #4b5563;
+    }
+</style>
 <div class="md:p-6" x-data="{ showRejectForm: false }">
 
     {{-- Back link --}}
@@ -118,12 +189,18 @@
         <div style="background:#000; border:1px solid #000; border-radius:12px; padding:20px;">
             <h2 style="font-size:15px; font-weight:600; color:#fff; margin:0 0 16px 0;">Decision</h2>
 
-            <div style="display:flex; gap:10px; flex-wrap:wrap;" x-show="!showRejectForm">
+            <div style="display:flex; gap:12px; flex-wrap:wrap;" x-show="!showRejectForm">
                 <form method="POST" action="{{ route('verification.approve', $verification) }}" onsubmit="return confirm('Approve this verification?');">
                     @csrf
-                    <button type="submit" style="background:#22c55e; color:#000; border:none; font-size:13px; font-weight:600; padding:10px 24px; border-radius:8px; cursor:pointer;">Approve</button>
+                    <button type="submit" class="btn-approve">
+                        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M16.667 5L7.5 14.167 3.333 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        Approve
+                    </button>
                 </form>
-                <button type="button" @click="showRejectForm = true" style="background:rgba(239,68,68,0.15); color:#f87171; border:1px solid #ef4444; font-size:13px; font-weight:600; padding:10px 24px; border-radius:8px; cursor:pointer;">Reject</button>
+                <button type="button" @click="showRejectForm = true" class="btn-reject">
+                    <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 5L5 15M5 5l10 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    Reject
+                </button>
             </div>
 
             <div x-show="showRejectForm" x-cloak>
@@ -132,8 +209,11 @@
                     <label style="display:block; font-size:12px; color:#9ca3af; margin-bottom:8px;">Rejection reason (shown to the user)</label>
                     <textarea name="reason" required maxlength="1000" rows="3" style="width:100%; background:#1a1a1a; border:1px solid #374151; border-radius:8px; color:#fff; font-size:13px; padding:10px 12px; resize:vertical;" placeholder="e.g. Selfie does not match ID photo, document photo is blurry..."></textarea>
                     <div style="display:flex; gap:10px; margin-top:12px;">
-                        <button type="submit" style="background:#ef4444; color:#fff; border:none; font-size:13px; font-weight:600; padding:10px 24px; border-radius:8px; cursor:pointer;">Confirm Rejection</button>
-                        <button type="button" @click="showRejectForm = false" style="background:transparent; color:#9ca3af; border:1px solid #374151; font-size:13px; padding:10px 24px; border-radius:8px; cursor:pointer;">Cancel</button>
+                        <button type="submit" class="btn-confirm-reject">
+                            <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 5L5 15M5 5l10 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            Confirm Rejection
+                        </button>
+                        <button type="button" @click="showRejectForm = false" class="btn-cancel">Cancel</button>
                     </div>
                 </form>
             </div>
