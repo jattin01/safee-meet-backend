@@ -163,7 +163,11 @@ class SubscriptionController extends Controller
                 'status' => $status,
                 'trial_days' => $plan->trial_days,
                 'started_at' => now(),
-                'renews_at' => $isTrial ? now()->addDays($plan->trial_days) : now()->addMonth(),
+                'renews_at' => match (true) {
+                    $isTrial => now()->addDays($plan->trial_days),
+                    $validated['billing_cycle'] === 'yearly' => now()->addYear(),
+                    default => now()->addMonth(),
+                },
                 'stripe_customer_id' => $stripeCustomer?->id,
                 'stripe_subscription_id' => $stripeSubscription?->id,
             ]);

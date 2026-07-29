@@ -48,9 +48,12 @@ class StripeService
         ?int $trialDays
     ): StripeSubscription {
         if ($paymentMethodId) {
-            $this->client->paymentMethods->attach($paymentMethodId, ['customer' => $customer->id]);
+            // Stripe test tokens (e.g. pm_card_visa) alias to a different,
+            // real PaymentMethod id once attached — always use the id Stripe
+            // hands back, not the id we were given.
+            $attached = $this->client->paymentMethods->attach($paymentMethodId, ['customer' => $customer->id]);
             $this->client->customers->update($customer->id, [
-                'invoice_settings' => ['default_payment_method' => $paymentMethodId],
+                'invoice_settings' => ['default_payment_method' => $attached->id],
             ]);
         }
 
