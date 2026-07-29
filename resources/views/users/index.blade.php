@@ -170,7 +170,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         let reason = null;
         if (newStatus === 'suspended') {
-            reason = window.prompt('Reason for suspending this user (optional):') || null;
+            const input = window.prompt('Reason for suspending this user (optional):');
+            if (input === null) {
+                select.value = previousValue;
+                return;
+            }
+            reason = input || null;
         } else if (!window.confirm(`Change this user's status to "${newStatus}"?`)) {
             select.value = previousValue;
             return;

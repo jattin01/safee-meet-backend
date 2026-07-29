@@ -284,7 +284,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const saveButton = document.getElementById('account-status-save');
     const currentLabel = document.getElementById('status-current');
     const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
-    const initialStatus = select.value;
+    let initialStatus = select.value;
 
     saveButton.addEventListener('click', async () => {
         const newStatus = select.value;
@@ -293,7 +293,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         let reason = null;
         if (newStatus === 'suspended') {
-            reason = window.prompt('Reason for suspending this user (optional):') || null;
+            const input = window.prompt('Reason for suspending this user (optional):');
+            if (input === null) {
+                select.value = initialStatus;
+                return;
+            }
+            reason = input || null;
         } else if (!window.confirm(`Change this user's status to "${newStatus}"?`)) {
             select.value = initialStatus;
             return;
@@ -320,6 +325,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             currentLabel.textContent = result.status_label;
             currentLabel.style.color = result.status_color;
+            initialStatus = newStatus;
         } catch (error) {
             alert(error.message);
             select.value = initialStatus;
