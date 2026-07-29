@@ -78,7 +78,7 @@ class StripeService
 
     public function resolvePriceId(SubscriptionPlan $plan, string $billingCycle): ?string
     {
-        return $billingCycle === 'yearly' ? $plman->yearly_stripe_price_id : $plan->monthly_stripe_price_id;
+        return $billingCycle === 'yearly' ? $plan->yearly_stripe_price_id : $plan->monthly_stripe_price_id;
     }
 
     public function verifyWebhookSignature(string $payload, string $signatureHeader): \Stripe\Event
