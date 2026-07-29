@@ -6,15 +6,30 @@
 <style>
     [x-cloak] { display: none !important; }
 
+    .decision-row {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 14px;
+        flex-wrap: wrap;
+        padding-top: 18px;
+        border-top: 1px solid #1f2937;
+    }
+    .decision-row form { margin: 0; }
+
     .btn-approve, .btn-reject, .btn-confirm-reject, .btn-cancel {
         display: inline-flex;
         align-items: center;
+        justify-content: center;
         gap: 8px;
-        font-size: 13px;
+        min-width: 150px;
+        height: 44px;
+        font-size: 14px;
         font-weight: 600;
-        padding: 11px 22px;
+        padding: 0 26px;
         border-radius: 8px;
         cursor: pointer;
+        white-space: nowrap;
         transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.12s ease, opacity 0.12s ease;
     }
     .btn-approve svg, .btn-reject svg, .btn-confirm-reject svg, .btn-cancel svg {
@@ -187,9 +202,14 @@
     {{-- Actions --}}
     @if($isActionable)
         <div style="background:#000; border:1px solid #000; border-radius:12px; padding:20px;">
-            <h2 style="font-size:15px; font-weight:600; color:#fff; margin:0 0 16px 0;">Decision</h2>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:18px;">
+                <div>
+                    <h2 style="font-size:15px; font-weight:600; color:#fff; margin:0 0 4px 0;">Decision</h2>
+                    <p style="font-size:12px; color:#6b7280; margin:0;">Review the documents above, then approve or reject this verification.</p>
+                </div>
+            </div>
 
-            <div style="display:flex; gap:12px; flex-wrap:wrap;" x-show="!showRejectForm">
+            <div class="decision-row" x-show="!showRejectForm">
                 <form method="POST" action="{{ route('verification.approve', $verification) }}" onsubmit="return confirm('Approve this verification?');">
                     @csrf
                     <button type="submit" class="btn-approve">
@@ -208,12 +228,12 @@
                     @csrf
                     <label style="display:block; font-size:12px; color:#9ca3af; margin-bottom:8px;">Rejection reason (shown to the user)</label>
                     <textarea name="reason" required maxlength="1000" rows="3" style="width:100%; background:#1a1a1a; border:1px solid #374151; border-radius:8px; color:#fff; font-size:13px; padding:10px 12px; resize:vertical;" placeholder="e.g. Selfie does not match ID photo, document photo is blurry..."></textarea>
-                    <div style="display:flex; gap:10px; margin-top:12px;">
+                    <div class="decision-row" style="justify-content:flex-end; border-top:none; padding-top:14px;">
+                        <button type="button" @click="showRejectForm = false" class="btn-cancel">Cancel</button>
                         <button type="submit" class="btn-confirm-reject">
                             <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 5L5 15M5 5l10 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                             Confirm Rejection
                         </button>
-                        <button type="button" @click="showRejectForm = false" class="btn-cancel">Cancel</button>
                     </div>
                 </form>
             </div>

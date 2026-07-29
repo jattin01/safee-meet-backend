@@ -86,7 +86,7 @@ class StripeWebhookController extends Controller
 
         $subscription->update([
             'status' => 'active',
-            'renews_at' => now()->addMonth(),
+            'renews_at' => $subscription->billing_cycle === 'yearly' ? now()->addYear() : now()->addMonth(),
         ]);
         $subscription->user()->update(['subscription_status' => 'active']);
 
