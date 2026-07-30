@@ -98,8 +98,8 @@ class MeetingController extends Controller
     {
         $validated = $request->validate([
             'guest_user_id' => ['required', 'string', 'exists:users,id'],
-            'meeting_date' => ['required', 'date'],
-            'meeting_time' => ['required'],
+            'meeting_date' => ['required', 'date', 'after_or_equal:today'],
+            'meeting_time' => ['required', 'date_format:H:i'],
             'location' => ['required', 'string', 'max:255'],
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
@@ -120,6 +120,12 @@ class MeetingController extends Controller
         }
 
         $startAt = \Illuminate\Support\Carbon::parse($validated['meeting_date'].' '.$validated['meeting_time']);
+
+        if ($startAt->isPast()) {
+            throw ValidationException::withMessages([
+                'meeting_time' => 'You cannot create a meeting in the past.',
+            ]);
+        }
 
         $meeting = Meeting::create([
             'host_user_id' => $hostId,

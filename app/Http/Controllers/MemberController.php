@@ -80,6 +80,13 @@ class MemberController extends Controller
     {
         $code = strtoupper(trim($request->query('code', '')));
 
+        if (strlen($code) < 4) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Code too short.',
+            ], 422);
+        }
+
         $user = User::where(User::safeeColumn(), $code)
             ->where('status', 'active')
             ->first();
@@ -96,6 +103,23 @@ class MemberController extends Controller
                 'success' => false,
                 'message' => 'You cannot search yourself.',
             ], 422);
+        }
+
+        // Expired / cancelled trial → search is disabled until they pay.
+        if (! app(PlanEntitlements::class)->subscriptionActive($request->user())) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Your plan has expired. Subscribe to continue searching members.',
+                'subscription_required' => true,
+            ], 403);
+        }
+
+        if ($this->pinSearchLimitReached($request->user())) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You have reached your monthly SAFEE PIN search limit. Upgrade your plan to search more.',
+                'required_feature' => 'pin_search',
+            ], 403);
         }
 
         $this->logSearch($request, $user, $code, 'qr');
@@ -156,7 +180,7 @@ class MemberController extends Controller
         }
 
         $usedThisMonth = SearchHistory::where('searcher_id', $searcher->id)
-            ->where('method', 'pin')
+            ->whereIn('method', ['pin', 'qr'])
             ->where('created_at', '>=', now()->startOfMonth())
             ->count();
 
