@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\SosController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\StripeWebhookController;
+use App\Http\Controllers\Api\DiditWebhookController;
 use App\Http\Controllers\Api\NotificationController;
 
 /*
@@ -49,6 +50,7 @@ Route::prefix('v1')->group(function (): void {
     // ── Stripe webhook — Stripe calls this directly, no Sanctum token; the
     // signature check inside StripeWebhookController is the trust boundary ──
     Route::post('webhooks/stripe', StripeWebhookController::class);
+    Route::post('webhooks/didit', [DiditWebhookController::class, 'handle']);
 
     // ── Everything below requires a valid Sanctum token ─────────────────────
     Route::middleware('auth:sanctum')->group(function (): void {

@@ -6,6 +6,7 @@ use App\Models\IdentityDocument;
 use App\Models\IdentityVerification;
 use App\Models\SelfieVerification;
 use App\Models\User;
+use App\Services\Verification\DiditService;
 use App\Support\Verification\VerificationLevelResolver;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
@@ -17,6 +18,13 @@ class IdentityVerificationService
 {
     private const EDITABLE_STATUSES = ['draft', 'rejected', 'expired'];
     private const BLOCKED_STATUSES = ['pending', 'manual_review', 'approved'];
+
+    private DiditService $didit;
+
+    public function __construct(DiditService $didit)
+    {
+        $this->didit = $didit;
+    }
 
     public function getStatus(User $user): array
     {
@@ -123,6 +131,35 @@ class IdentityVerificationService
             ]);
             $verification->save();
 
+            // Attempt to submit to Didit for automated ID verification (best-effort)
+            try {
+                $result = $this->didit->submitIdVerification($frontPath, $backPath, [
+                    'vendor_data' => (string) $verification->id,
+                    'save_api_request' => true,
+                ]);
+
+                $metadata = $verification->metadata ?? [];
+                $metadata['didit_id_verification'] = $result;
+                $verification->metadata = $metadata;
+                $verification->save();
+
+                if (!empty($result['id_verification']['status'])) {
+                    $diditStatus = strtolower($result['id_verification']['status']);
+                    if ($diditStatus === 'approved') {
+                        $document->status = 'approved';
+                        $document->rejection_reason = null;
+                    } elseif ($diditStatus === 'declined') {
+                        $document->status = 'rejected';
+                        $document->rejection_reason = 'Automated check: declined by Didit';
+                    } else {
+                        $document->status = 'pending';
+                    }
+                    $document->save();
+                }
+            } catch (\Throwable $e) {
+                // best-effort: do not block uploads on Didit failures
+            }
+
             return $verification->fresh(['documents', 'selfieVerifications']);
         });
     }
@@ -175,6 +212,44 @@ class IdentityVerificationService
                 'kyc_status' => 'pending',
                 'updated_at' => now(),
             ])->save();
+
+            // Best-effort: submit passive liveness and face-match to Didit
+            try {
+                $passive = $this->didit->submitPassiveLiveness($selfiePath, [
+                    'vendor_data' => (string) $existing->id,
+                    'save_api_request' => true,
+                ]);
+
+                $meta = $existing->metadata ?? [];
+                $meta['didit_passive_liveness'] = $passive;
+
+                $document = $existing->documents()->latest('created_at')->first();
+                if ($document && $document->front_file_url) {
+                    $faceMatch = $this->didit->submitFaceMatch($selfiePath, $document->front_file_url, [
+                        'vendor_data' => (string) $existing->id,
+                        'save_api_request' => true,
+                    ]);
+                    $meta['didit_face_match'] = $faceMatch;
+
+                    // Update selfie status based on face match if available
+                    if (!empty($faceMatch['face_match']['status'])) {
+                        $fmStatus = strtolower($faceMatch['face_match']['status']);
+                        if ($fmStatus === 'approved') {
+                            $selfieRecord->status = 'approved';
+                            $selfieRecord->failure_reason = null;
+                        } elseif ($fmStatus === 'declined') {
+                            $selfieRecord->status = 'rejected';
+                            $selfieRecord->failure_reason = 'Automated check: face match declined';
+                        }
+                        $selfieRecord->save();
+                    }
+                }
+
+                $existing->metadata = $meta;
+                $existing->save();
+            } catch (\Throwable $e) {
+                // best-effort: do not block selfie uploads on Didit failures
+            }
 
             return $existing->fresh(['documents', 'selfieVerifications']);
         });

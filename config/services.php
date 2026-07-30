@@ -22,6 +22,11 @@ return [
         'key' => env('RESEND_API_KEY'),
     ],
 
+    'didit' => [
+        'api_key' => env('DIDIT_API_KEY'),
+        'base_uri' => env('DIDIT_BASE_URI', 'https://verification.didit.me/v3/'),
+    ],
+
     'ses' => [
         'key' => env('AWS_ACCESS_KEY_ID'),
         'secret' => env('AWS_SECRET_ACCESS_KEY'),
