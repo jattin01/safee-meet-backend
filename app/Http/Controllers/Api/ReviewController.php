@@ -58,7 +58,7 @@ class ReviewController extends Controller
             $list->whereHas('meeting', fn ($q) => $q->where('type', $request->query('category')));
         }
 
-        $reviews = $list->with(['reviewer:id,name,verification_level', 'meeting:id,type'])
+        $reviews = $list->with(['reviewer:id,display_name as name,verification_level', 'meeting:id,type'])
             ->latest()
             ->paginate(20);
 
