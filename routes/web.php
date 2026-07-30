@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\IncidentsController;
 use App\Http\Controllers\OrderController;
+use App\Http\Controllers\PrivacyPolicyController;
 use App\Http\Controllers\TermsController;
 use App\Http\Controllers\RevenueController;
 use App\Http\Controllers\SubscriptionsController;
@@ -15,6 +16,9 @@ use App\Http\Controllers\VerificationController;
 use Illuminate\Support\Facades\Route;
 
 
+
+Route::get('/terms-and-conditions', [TermsController::class, 'public'])->name('terms.public');
+Route::get('/privacy-policy', [PrivacyPolicyController::class, 'public'])->name('privacy-policy.public');
 
 Route::middleware('guest:admin')->group(function () {
 
@@ -56,6 +60,8 @@ Route::middleware('auth:admin')->group(function () {
     Route::get('/users/{id}', [UserController::class, 'show'])->name('users.show');
     Route::post('/users/{id}/status', [UserController::class, 'updateStatus'])->name('users.status.update');
     Route::post('/terms', [TermsController::class, 'update'])->name('terms.update');
+    Route::get('/privacy', [PrivacyPolicyController::class, 'index'])->name('privacy-policy.index');
+    Route::post('/privacy', [PrivacyPolicyController::class, 'update'])->name('privacy-policy.update');
 
     Route::get('/dashboard', [AdminDashboardController::class, 'index'])
         ->middleware('role:admin')

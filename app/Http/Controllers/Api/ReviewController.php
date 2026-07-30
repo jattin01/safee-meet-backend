@@ -16,8 +16,8 @@ class ReviewController extends Controller
      * "Reviews & Ratings" screen: overall average, 5-star breakdown, sub-metric
      * percentages (Punctual/Trustworthy/Responsive), filterable list.
      *
-     * Only the reviewer (who gave the review) or the reviewee (who received it)
-     * can view a review, so this always scopes to the authenticated user.
+     * Only the reviewee (who received the review) can view it on their profile —
+     * the reviewer who gave it does not see it here.
      *
      * Query params: ?stars=5 | ?category=marketplace
      */
@@ -25,10 +25,7 @@ class ReviewController extends Controller
     {
         $authUserId = $request->user()->id;
 
-        $base = MeetingReview::where(function ($q) use ($authUserId) {
-            $q->where('reviewer_id', $authUserId)
-                ->orWhere('reviewee_id', $authUserId);
-        });
+        $base = MeetingReview::where('reviewee_id', $authUserId);
 
         // --- Summary block (average, count-per-star, sub-metric %) ---
         $all = (clone $base)->get();
