@@ -14,6 +14,13 @@ class TermsController extends Controller
         return view('terms.index', ['terms' => $terms]);
     }
 
+    public function public()
+    {
+        $terms = Terms::first();
+
+        return view('terms.public', ['terms' => $terms]);
+    }
+
     public function update(Request $request)
     {
         $validated = $request->validate([
