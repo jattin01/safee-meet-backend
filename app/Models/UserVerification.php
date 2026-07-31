@@ -24,6 +24,10 @@ class UserVerification extends Model
         'reviewed_at',
         'approved_at',
         'rejected_at',
+        'provider',
+        'didit_session_id',
+        'didit_decision_status',
+        'didit_payload',
     ];
 
     protected $casts = [
@@ -32,6 +36,7 @@ class UserVerification extends Model
         'reviewed_at' => 'datetime',
         'approved_at' => 'datetime',
         'rejected_at' => 'datetime',
+        'didit_payload' => 'array',
     ];
 
     public function user(): BelongsTo

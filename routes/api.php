@@ -16,12 +16,15 @@ use App\Http\Controllers\Api\SosController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\StripeWebhookController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\DiditVerificationController;
+
 
 /*
 |--------------------------------------------------------------------------
 | SAFEE MEET API Routes
 |--------------------------------------------------------------------------
 */
+Route::post('/webhooks/didit', [DiditVerificationController::class, 'handleWebhook'])->name('webhooks.didit');
 Route::middleware('auth:sanctum')->get('/v1/auth/phone/home', [ProfileController::class, 'home']);
 Route::prefix('v1')->group(function (): void {
 
@@ -119,6 +122,9 @@ Route::prefix('v1')->group(function (): void {
             Route::get('progress', [VerificationApiController::class, 'progress']);
             Route::post('id', [VerificationApiController::class, 'uploadId']);
             Route::post('selfie', [VerificationApiController::class, 'uploadSelfie']);
+
+            Route::post('/didit/start', [DiditVerificationController::class, 'start']);
+            Route::get('/didit/status', [DiditVerificationController::class, 'status']);
         });
     });
 });
