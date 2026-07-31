@@ -83,6 +83,13 @@ class FeatureController extends Controller
      * feature set from the posted grid: boolean cells are included when
      * checked, limit cells when a value is entered. sync() also detaches any
      * feature no longer assigned.
+     *
+     * A blank limit cell means "no change", not "remove" — an already-saved
+     * value (e.g. "Unlimited") is carried forward instead of being detached.
+     * Leaving a text field empty silently deleted a plan's entitlement
+     * (e.g. Basic's pin_search grant) with no way to tell that apart from an
+     * intentional removal; there is currently no UI action to explicitly
+     * remove a limit feature from a plan.
      */
     public function saveMatrix(Request $request): RedirectResponse
     {
@@ -90,7 +97,15 @@ class FeatureController extends Controller
         $plans = SubscriptionPlan::active()->get();
         $features = Feature::all();
 
-        DB::transaction(function () use ($matrix, $plans, $features) {
+        $existing = [];
+        foreach (DB::table('plan_feature')->get() as $row) {
+            $existing[$row->plan_id][$row->feature_id] = [
+                'included' => (bool) $row->included,
+                'value' => $row->value,
+            ];
+        }
+
+        DB::transaction(function () use ($matrix, $plans, $features, $existing) {
             foreach ($plans as $plan) {
                 $sync = [];
 
@@ -99,8 +114,11 @@ class FeatureController extends Controller
 
                     if ($feature->type === 'limit') {
                         $value = trim((string) ($cell['value'] ?? ''));
+
                         if ($value !== '') {
                             $sync[$feature->id] = ['included' => true, 'value' => $value];
+                        } elseif ($prev = $existing[$plan->id][$feature->id] ?? null) {
+                            $sync[$feature->id] = $prev;
                         }
                     } elseif (!empty($cell['included'])) {
                         $sync[$feature->id] = ['included' => true, 'value' => null];

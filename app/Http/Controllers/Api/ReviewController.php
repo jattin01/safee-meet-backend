@@ -73,47 +73,10 @@ class ReviewController extends Controller
     /**
      * POST /api/v1/meetings/{meeting}/review — leave a review after a completed meeting
      */
-    // public function store(Request $request, Meeting $meeting): JsonResponse
-    // {
-    //     abort_unless(
-    //         in_array($request->user()->id, [$meeting->host_user_id, $meeting->guest_user_id]),
-    //         403,
-    //         'Not a participant in this meeting'
-    //     );
-
-    //     if ($meeting->status !== 'completed') {
-    //         return response()->json(['message' => 'Meeting must be completed before it can be reviewed'], 422);
-    //     }
-
-    //     $validated = $request->validate([
-    //         'rating' => ['required', 'integer', 'min:1', 'max:5'],
-    //         'comment' => ['nullable', 'string', 'max:2000'],
-    //         'punctual' => ['nullable', 'boolean'],
-    //         'trustworthy' => ['nullable', 'boolean'],
-    //         'responsive' => ['nullable', 'boolean'],
-    //     ]);
-
-    //     $revieweeId = $meeting->host_user_id === $request->user()->id
-    //         ? $meeting->guest_user_id
-    //         : $meeting->host_user_id;
-
-    //     $review = MeetingReview::updateOrCreate(
-    //         ['meeting_id' => $meeting->id, 'reviewer_id' => $request->user()->id],
-    //         $validated + ['reviewee_id' => $revieweeId]
-    //     );
-
-    //     // Keep the reviewee's rolling `rating` in sync for quick display on Home/Profile screens.
-    //     $avg = MeetingReview::where('reviewee_id', $revieweeId)->avg('rating');
-    //     \App\Models\User::where('id', $revieweeId)->update(['rating' => round($avg, 1)]);
-
-    //     return response()->json($review, 201);
-    // }
-
     public function store(Request $request, Meeting $meeting): JsonResponse
     {
         // Validate request
         $validated = $request->validate([
-            'user_id'      => ['required', 'integer'],
             'rating'       => ['required', 'integer', 'min:1', 'max:5'],
             'comment'      => ['nullable', 'string', 'max:2000'],
             'punctual'     => ['nullable', 'boolean'],
@@ -121,11 +84,13 @@ class ReviewController extends Controller
             'responsive'   => ['nullable', 'boolean'],
         ]);
 
-        $userId = $validated['user_id'];
+        // The reviewer is always the authenticated caller, never a client-supplied
+        // id — otherwise reviewer/reviewee can end up swapped (frontend has been
+        // sending the reviewee's id here, inverting who received each review).
+        $reviewerId = $request->user()->id;
 
-        // Check whether the given user is a participant in this meeting
         abort_unless(
-            in_array($userId, [$meeting->host_user_id, $meeting->guest_user_id]),
+            in_array($reviewerId, [$meeting->host_user_id, $meeting->guest_user_id]),
             403,
             'Not a participant in this meeting'
         );
@@ -138,7 +103,7 @@ class ReviewController extends Controller
         }
 
         // Determine who is being reviewed
-        $revieweeId = $meeting->host_user_id == $userId
+        $revieweeId = $meeting->host_user_id == $reviewerId
             ? $meeting->guest_user_id
             : $meeting->host_user_id;
 
@@ -146,7 +111,7 @@ class ReviewController extends Controller
         $review = MeetingReview::updateOrCreate(
             [
                 'meeting_id'  => $meeting->id,
-                'reviewer_id' => $userId,
+                'reviewer_id' => $reviewerId,
             ],
             [
                 'reviewee_id'  => $revieweeId,
