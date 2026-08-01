@@ -58,7 +58,7 @@ class StripeWebhookController extends Controller
     $eventType = $event->type;
     $paymentIntent = $event->data->object;
 
-    $        = $paymentIntent->id ?? null;
+    $paymentIntentId = $paymentIntent->id ?? null;
     $stripeStatus = $paymentIntent->status ?? null;
 
     Log::info('Verified Stripe webhook received', [
