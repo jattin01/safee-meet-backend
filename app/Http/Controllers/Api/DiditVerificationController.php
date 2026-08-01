@@ -32,6 +32,7 @@ class DiditVerificationController extends Controller
             'vendor_data' => (string) $user->id,
         ]);
 
+        
         if ($response->failed()) {
             Log::error('Didit session creation failed', [
                 'user_id' => $user->id,
