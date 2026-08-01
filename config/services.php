@@ -45,6 +45,7 @@ return [
         'webhook_secret' => env('DIDIT_WEBHOOK_SECRET'),
         'workflow_id' => env('DIDIT_WORKFLOW_ID'),
         'base_url' => env('DIDIT_BASE_URL', 'https://verification.didit.me'),
+        'callback_url' => env('DIDIT_CALLBACK_URL'),
     ],
 
 ];
