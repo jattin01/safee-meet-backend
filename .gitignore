@@ -22,3 +22,9 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# claude-history plumbing (lock/tmp files) - the JSON logs themselves are tracked
+claude-history/.*.lock
+claude-history/.*.tmp.*
+claude-history/transcripts/.*.lock
+claude-history/transcripts/.*.tmp.*

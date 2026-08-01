@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\SosController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\StripeWebhookController;
-use App\Http\Controllers\Api\WebhookDebugController;
+use App\Http\Controllers\Api\WebhookController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\DiditVerificationController;
 
@@ -50,13 +50,15 @@ Route::prefix('v1')->group(function (): void {
         // Route::get('home',[ProfileController::class,'home'])->middleware('throttle:5,1');
     });
 
+    //  Route::post('webhook', [WebhookController::class, 'webhook']);
+
     // ── Stripe webhook — Stripe calls this directly, no Sanctum token; the
     // signature check inside StripeWebhookController is the trust boundary ──
-    Route::post('webhooks/stripe', StripeWebhookController::class);
+    Route::post('webhook', StripeWebhookController::class);
 
     // ── Debug: no auth, no signature check — just logs whatever hits it, to
     // confirm Stripe (or anyone) can actually reach this server ──────────────
-    Route::any('webhooks/stripe/debug', WebhookDebugController::class);
+   
 
     // ── Everything below requires a valid Sanctum token ─────────────────────
     Route::middleware('auth:sanctum')->group(function (): void {

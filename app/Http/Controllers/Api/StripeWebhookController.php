@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Stripe\Exception\SignatureVerificationException;
 use UnexpectedValueException;
+use Stripe\Webhook;
 
 class StripeWebhookController extends Controller
 {
@@ -24,46 +25,118 @@ class StripeWebhookController extends Controller
      * this is the only reliable place to keep `subscriptions`/`users` in sync.
      */
     public function __invoke(Request $request): JsonResponse
-    {
-        try {
-            $event = app(\App\Services\StripeService::class)->verifyWebhookSignature(
-                $request->getContent(),
-                $request->header('Stripe-Signature', ''),
-            );
-        } catch (UnexpectedValueException|SignatureVerificationException $e) {
-            Log::warning('Stripe webhook signature verification failed', ['error' => $e->getMessage()]);
+{
+    $payload = $request->getContent();
+    $signature = $request->header('Stripe-Signature');
+    $webhookSecret = config('services.stripe.webhook_secret');
 
-            return response()->json(['message' => 'Invalid signature'], 400);
-        }
-
-        // Idempotency: Stripe retries undelivered webhooks, so a repeat event
-        // id must be a no-op rather than double-crediting/cancelling.
-        $alreadyProcessed = PaymentWebhookEvent::where('stripe_event_id', $event->id)
-            ->whereNotNull('processed_at')
-            ->exists();
-
-        if ($alreadyProcessed) {
-            return response()->json(['message' => 'Already processed']);
-        }
-
-        $record = PaymentWebhookEvent::firstOrCreate(
-            ['stripe_event_id' => $event->id],
-            ['type' => $event->type, 'payload' => $event->toArray()],
+    try {
+        // Verify that webhook actually came from Stripe
+        $event = Webhook::constructEvent(
+            $payload,
+            $signature,
+            $webhookSecret
         );
+    } catch (UnexpectedValueException $exception) {
+        Log::error('Invalid Stripe webhook payload', [
+            'message' => $exception->getMessage(),
+        ]);
 
-        DB::transaction(function () use ($event) {
-            match ($event->type) {
-                'invoice.paid' => $this->handleInvoicePaid($event),
-                'invoice.payment_failed' => $this->handlePaymentFailed($event),
-                'customer.subscription.deleted' => $this->handleSubscriptionDeleted($event),
-                default => null,
-            };
-        });
+        return response()->json([
+            'message' => 'Invalid webhook payload',
+        ], 400);
+    } catch (SignatureVerificationException $exception) {
+        Log::error('Invalid Stripe webhook signature', [
+            'message' => $exception->getMessage(),
+        ]);
 
-        $record->update(['processed_at' => now()]);
-
-        return response()->json(['message' => 'ok']);
+        return response()->json([
+            'message' => 'Invalid webhook signature',
+        ], 400);
     }
+
+    $eventType = $event->type;
+    $paymentIntent = $event->data->object;
+
+    $        = $paymentIntent->id ?? null;
+    $stripeStatus = $paymentIntent->status ?? null;
+
+    Log::info('Verified Stripe webhook received', [
+        'event_id' => $event->id,
+        'event_type' => $eventType,
+        'payment_intent_id' => $paymentIntentId,
+        'stripe_status' => $stripeStatus,
+    ]);
+
+    if (! $paymentIntentId) {
+        return response()->json([
+            'message' => 'Payment Intent ID not found',
+        ], 422);
+    }
+
+    $subscriptionExists = Subscription::where(
+        'stripe_payment_intent_id',
+        $paymentIntentId
+    )->exists();
+
+    if (!$subscriptionExists) {
+        Log::warning('Subscription not found', [
+            'payment_intent_id' => $paymentIntentId,
+        ]);
+
+        return response()->json([
+            'message' => 'Subscription not found',
+        ], 200);
+    }
+
+    switch ($eventType) {
+        case 'payment_intent.created':
+            // yha payment ko pending hi rakhna h 
+            $subscription->update([
+            'status' => 'pending',
+            ]);
+            break;
+
+        case 'payment_intent.processing':
+            // yha payment ko processing hi rakhna h
+            $subscription->update([
+            'status' => 'processing',
+            ]);
+            break;
+
+        case 'payment_intent.succeeded':
+            // yha payment ko paid krna h 
+            $subscription->update([
+            'status' => 'active',
+            'paid_at' => now(),
+        ]);
+        break;
+        case 'payment_intent.payment_failed':
+            // yha payment ko failed krna h
+            $subscription->update([
+                'status' => 'failed',
+            ]);
+            break;
+
+        case 'payment_intent.canceled':
+            // yha payment ko failed krna h
+            $subscription->update([
+                'status' => 'cancelled',
+            ]);
+            break;
+
+        default:
+            Log::info('Stripe webhook event ignored', [
+                'event_type' => $eventType,
+                'payment_intent_id' => $paymentIntentId,
+            ]);
+            break;
+    }
+
+    return response()->json([
+        'message' => 'Webhook processed successfully',
+    ], 200);
+}
 
     /**
      * Stripe's newer API versions moved the subscription id off the invoice's

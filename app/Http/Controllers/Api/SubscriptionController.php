@@ -111,6 +111,22 @@ class SubscriptionController extends Controller
         $user = $request->user();
         $plan = SubscriptionPlan::where('slug', $validated['plan_slug'])->firstOrFail();
 
+        // Close out any still-open subscription (trial, active, or a stalled
+        // payment-pending one) before starting a new one. Without this, a
+        // retried or upgraded subscribe() call creates a parallel Stripe
+        // subscription that keeps billing independently of the old one.
+        $stillOpen = $user->subscriptions()->whereIn('status', ['trial', 'active', 'incomplete'])->get();
+        foreach ($stillOpen as $old) {
+            if ($old->stripe_subscription_id) {
+                try {
+                    $this->stripe->cancelSubscription($old->stripe_subscription_id);
+                } catch (\Throwable $e) {
+                    // Already cancelled/expired on Stripe's side — nothing to do.
+                }
+            }
+            $old->update(['status' => 'cancelled', 'cancelled_at' => now()]);
+        }
+
         $isTrial = (int) $plan->trial_days > 0;
         $price = $validated['billing_cycle'] === 'yearly' ? $plan->yearly_price : $plan->monthly_price;
 

@@ -23,7 +23,15 @@ class StripeService
      */
     public function createOrGetCustomer(User $user): Customer
     {
-        $existingId = $user->activeSubscription?->stripe_customer_id;
+        // Look across *all* of the user's subscriptions, not just trial/active
+        // ones — an incomplete (payment-pending) subscription still has a
+        // valid Stripe customer, and reusing it stops every retry from
+        // minting a brand-new customer (and, downstream, a brand-new paid
+        // subscription) for the same person.
+        $existingId = $user->subscriptions()
+            ->whereNotNull('stripe_customer_id')
+            ->latest()
+            ->value('stripe_customer_id');
 
         if ($existingId) {
             return $this->client->customers->retrieve($existingId);
