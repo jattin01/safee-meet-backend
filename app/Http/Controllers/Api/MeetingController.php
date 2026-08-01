@@ -82,11 +82,15 @@ class MeetingController extends Controller
                         'id' => $meeting->host?->id,
                         'name' => $meeting->host?->name ?: $meeting->host?->display_name ?: 'SAFEE User',
                         'phone' => $meeting->host?->phone,
+                        'latitude' => $meeting->host?->latitude,
+                        'longitude' => $meeting->host?->longitude,
                     ],
                     'guest' => [
                         'id' => $meeting->guest?->id,
                         'name' => $meeting->guest?->name ?: $meeting->guest?->display_name ?: 'SAFEE User',
                         'phone' => $meeting->guest?->phone,
+                        'latitude' => $meeting->guest?->latitude,
+                        'longitude' => $meeting->guest?->longitude,
                     ],
                 ],
                 'emergency_contacts' => $emergencyContacts,
@@ -343,5 +347,20 @@ class MeetingController extends Controller
             403,
             'Only the invited guest can respond to this meeting request'
         );
+    }
+
+    public function updateLocation(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'latitude' => ['required', 'numeric'],
+            'longitude' => ['required', 'numeric'],
+        ]);
+
+        $user = $request->user();
+        $user->latitude = $validated['latitude'];
+        $user->longitude = $validated['longitude'];
+        $user->save();
+
+        return response()->json(['message' => 'Location updated successfully.']);
     }
 }
