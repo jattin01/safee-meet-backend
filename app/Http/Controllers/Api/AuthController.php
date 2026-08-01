@@ -3,8 +3,9 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
 use App\Models\User;
+use App\Services\PushNotificationService;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -141,6 +142,19 @@ class AuthController extends Controller
         });
 
         Cache::forget($cacheKey);
+
+        app(PushNotificationService::class)->sendToUser(
+            $user,
+            'Registration successful',
+            ($challenge['intent'] ?? null) === 'register'
+                ? 'Your account was created successfully.'
+                : 'You are now logged in successfully.',
+            [
+                'type' => 'account_registered',
+                'user_id' => (string) $user->id,
+                'flow' => $challenge['intent'] ?? 'login',
+            ],
+        );
 
         $token = $user->createToken($validated['device_name'] ?? 'safee-meet-app')->plainTextToken;
 
