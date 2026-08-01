@@ -129,8 +129,16 @@ class MemberController extends Controller
     //         'data'    => $this->formatMember($user),
     //     ]);
     // }
-    public function searchByQR(Request $request): JsonResponse
+public function searchByQR(Request $request): JsonResponse
 {
+    \Log::info('QR Search Request', [
+        'method' => $request->method(),
+        'query' => $request->query(),
+        'body' => $request->all(),
+        'code' => $request->input('code'),
+        'url' => $request->fullUrl(),
+    ]);
+
     $rawCode = $request->input('code');
 
     if (!is_string($rawCode) || trim($rawCode) === '') {
@@ -142,10 +150,10 @@ class MemberController extends Controller
 
     $code = strtoupper(trim($rawCode));
 
-    if (strlen($code) < 4) {
+    if (strlen($code) < 1) {
         return response()->json([
             'success' => false,
-            'message' => 'SAFEE code must contain at least 4 characters.',
+            'message' => 'SAFEE code must contain at least 1 character.',
         ], 422);
     }
 
