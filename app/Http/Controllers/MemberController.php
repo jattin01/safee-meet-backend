@@ -76,59 +76,120 @@ class MemberController extends Controller
      * Search a member by QR code (also safee_id encoded in QR).
      * GET /members/qr?code=SMXXXXXXXX
      */
+    // public function searchByQR(Request $request): JsonResponse
+    // {
+    //     $code = strtoupper(trim($request->query('code', '')));
+
+    //     if (strlen($code) < 4) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Code too short.',
+    //         ], 422);
+    //     }
+
+    //     $user = User::where(User::safeeColumn(), $code)
+    //         ->where('status', 'active')
+    //         ->first();
+
+    //     if (!$user) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Member not found.',
+    //         ], 404);
+    //     }
+
+    //     if ($user->id === $request->user()->id) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'You cannot search yourself.',
+    //         ], 422);
+    //     }
+
+    //     // Expired / cancelled trial → search is disabled until they pay.
+    //     if (! app(PlanEntitlements::class)->subscriptionActive($request->user())) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Your plan has expired. Subscribe to continue searching members.',
+    //             'subscription_required' => true,
+    //         ], 403);
+    //     }
+
+    //     if ($this->pinSearchLimitReached($request->user())) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'You have reached your monthly SAFEE PIN search limit. Upgrade your plan to search more.',
+    //             'required_feature' => 'pin_search',
+    //         ], 403);
+    //     }
+
+    //     $this->logSearch($request, $user, $code, 'qr');
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'data'    => $this->formatMember($user),
+    //     ]);
+    // }
     public function searchByQR(Request $request): JsonResponse
-    {
-        $code = strtoupper(trim($request->query('code', '')));
+{
+    $rawCode = $request->input('code');
 
-        if (strlen($code) < 4) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Code too short.',
-            ], 422);
-        }
-
-        $user = User::where(User::safeeColumn(), $code)
-            ->where('status', 'active')
-            ->first();
-
-        if (!$user) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Member not found.',
-            ], 404);
-        }
-
-        if ($user->id === $request->user()->id) {
-            return response()->json([
-                'success' => false,
-                'message' => 'You cannot search yourself.',
-            ], 422);
-        }
-
-        // Expired / cancelled trial → search is disabled until they pay.
-        if (! app(PlanEntitlements::class)->subscriptionActive($request->user())) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Your plan has expired. Subscribe to continue searching members.',
-                'subscription_required' => true,
-            ], 403);
-        }
-
-        if ($this->pinSearchLimitReached($request->user())) {
-            return response()->json([
-                'success' => false,
-                'message' => 'You have reached your monthly SAFEE PIN search limit. Upgrade your plan to search more.',
-                'required_feature' => 'pin_search',
-            ], 403);
-        }
-
-        $this->logSearch($request, $user, $code, 'qr');
-
+    if (!is_string($rawCode) || trim($rawCode) === '') {
         return response()->json([
-            'success' => true,
-            'data'    => $this->formatMember($user),
-        ]);
+            'success' => false,
+            'message' => 'SAFEE code is required.',
+        ], 422);
     }
+
+    $code = strtoupper(trim($rawCode));
+
+    if (strlen($code) < 4) {
+        return response()->json([
+            'success' => false,
+            'message' => 'SAFEE code must contain at least 4 characters.',
+        ], 422);
+    }
+
+    $user = User::where(User::safeeColumn(), $code)
+        ->where('status', 'active')
+        ->first();
+
+    if (!$user) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Member not found.',
+        ], 404);
+    }
+
+    if ($user->id === $request->user()->id) {
+        return response()->json([
+            'success' => false,
+            'message' => 'You cannot search yourself.',
+        ], 422);
+    }
+
+    if (!app(PlanEntitlements::class)->subscriptionActive($request->user())) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Your plan has expired. Subscribe to continue searching members.',
+            'subscription_required' => true,
+        ], 403);
+    }
+
+    if ($this->pinSearchLimitReached($request->user())) {
+        return response()->json([
+            'success' => false,
+            'message' => 'You have reached your monthly SAFEE PIN search limit. Upgrade your plan to search more.',
+            'required_feature' => 'pin_search',
+        ], 403);
+    }
+
+    $this->logSearch($request, $user, $code, 'qr');
+
+    return response()->json([
+        'success' => true,
+        'data' => $this->formatMember($user),
+    ]);
+}
 
     /**
      * Members the current user has previously searched for (PIN or QR),

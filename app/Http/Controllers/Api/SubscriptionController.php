@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Feature;
+use App\Models\Payment;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
 use App\Services\StripeService;
@@ -160,7 +161,16 @@ class SubscriptionController extends Controller
             );
         }
 
-        $subscription = DB::transaction(function () use ($user, $plan, $validated, $isTrial, $price, $stripeCustomer, $stripeSubscription) {
+        // client_secret is always "{payment_intent_id}_secret_{...}" — Stripe
+        // stopped exposing latest_invoice.payment_intent directly, so this is
+        // the only place we can recover the id the payment_intent.* webhook
+        // events will reference.
+        $confirmationSecret = $stripeSubscription?->latest_invoice?->confirmation_secret;
+        $paymentIntentId = $confirmationSecret
+            ? strstr($confirmationSecret->client_secret, '_secret_', true)
+            : null;
+
+        $subscription = DB::transaction(function () use ($user, $plan, $validated, $isTrial, $price, $stripeCustomer, $stripeSubscription, $paymentIntentId) {
             // A freshly created Stripe subscription is 'incomplete' until its
             // first invoice is paid — only 'active'/'trialing' from Stripe
             // may grant entitlements; everything else must stay non-active
@@ -188,6 +198,16 @@ class SubscriptionController extends Controller
                 'stripe_subscription_id' => $stripeSubscription?->id,
             ]);
 
+            if ($paymentIntentId) {
+                Payment::create([
+                    'user_id' => $user->id,
+                    'subscription_id' => $subscription->id,
+                    'stripe_payment_intent_id' => $paymentIntentId,
+                    'amount' => (int) round($price * 100),
+                    'status' => 'pending',
+                ]);
+            }
+
             $user->update([
                 'plan_id' => $plan->id,
                 'subscription_status' => $subscription->status,
@@ -201,7 +221,6 @@ class SubscriptionController extends Controller
         // App must confirm this client_secret via Stripe SDK (confirmPayment)
         // before the subscription becomes chargeable; the webhook then flips
         // the local status to 'active' once invoice.paid fires.
-        $confirmationSecret = $stripeSubscription?->latest_invoice?->confirmation_secret;
         if ($confirmationSecret) {
             $response['payment_intent_client_secret'] = $confirmationSecret->client_secret;
             $response['payment_intent_status'] = $stripeSubscription->status;

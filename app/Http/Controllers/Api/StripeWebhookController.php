@@ -74,12 +74,9 @@ class StripeWebhookController extends Controller
         ], 422);
     }
 
-    $subscriptionExists = Subscription::where(
-        'stripe_payment_intent_id',
-        $paymentIntentId
-    )->exists();
+    $payment = Payment::where('stripe_payment_intent_id', $paymentIntentId)->first();
 
-    if (!$subscriptionExists) {
+    if (! $payment || ! $payment->subscription) {
         Log::warning('Subscription not found', [
             'payment_intent_id' => $paymentIntentId,
         ]);
@@ -89,45 +86,53 @@ class StripeWebhookController extends Controller
         ], 200);
     }
 
+    $subscription = $payment->subscription;
+
     switch ($eventType) {
         case 'payment_intent.created':
-            log::warning ('inside case 1 pending');
-            // yha payment ko pending hi rakhna h 
+            Log::warning('step1 Subscription set to incomplete', ['payment_intent_id' => $paymentIntentId]);
             $subscription->update([
-            'status' => 'pending',
+                'status' => 'incomplete',
             ]);
             break;
 
         case 'payment_intent.processing':
-            // yha payment ko processing hi rakhna h
-            log::warning ('inside case 2 processing');
+            Log::warning(' step 2 Subscription set to incomplete', ['payment_intent_id' => $paymentIntentId]);
             $subscription->update([
-            'status' => 'processing',
+                'status' => 'incomplete',
             ]);
             break;
 
         case 'payment_intent.succeeded':
-            // yha payment ko paid krna h 
-            log::warning ('inside case 3 active');
+            Log::warning('Step 3 Subscription set to active', ['payment_intent_id' => $paymentIntentId]);
             $subscription->update([
-            'status' => 'active',
-            'paid_at' => now(),
-        ]);
-        break;
+                'status' => 'active',
+            ]);
+            $subscription->user()->update(['subscription_status' => 'active']);
+            $payment->update([
+                'status' => 'succeeded',
+                'paid_at' => now(),
+            ]);
+            break;
+
         case 'payment_intent.payment_failed':
-            // yha payment ko failed krna h
-            log::warning ('inside case 4 faild');
+            Log::warning('Step 4 Subscription set to expired', ['payment_intent_id' => $paymentIntentId]);
             $subscription->update([
+                'status' => 'expired',
+            ]);
+            $subscription->user()->update(['subscription_status' => 'expired']);
+            $payment->update([
                 'status' => 'failed',
             ]);
             break;
 
         case 'payment_intent.canceled':
-            // yha payment ko failed krna h
-            log::warning ('inside case 5 cancelled');
+            Log::warning('Step 5 Subscription set to cancelled', ['payment_intent_id' => $paymentIntentId]);
             $subscription->update([
                 'status' => 'cancelled',
+                'cancelled_at' => now(),
             ]);
+            $subscription->user()->update(['subscription_status' => 'cancelled']);
             break;
 
         default:
