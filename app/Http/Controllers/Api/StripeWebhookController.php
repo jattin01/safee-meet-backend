@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Payment;
 use App\Models\PaymentWebhookEvent;
 use App\Models\Subscription;
+use App\Services\PushNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -113,6 +114,13 @@ class StripeWebhookController extends Controller
                 'status' => 'succeeded',
                 'paid_at' => now(),
             ]);
+
+            app(PushNotificationService::class)->sendToUser(
+                $subscription->user,
+                'Subscription purchase successful',
+                'Your plan was purchased successfully.',
+                ['type' => 'subscription_purchased', 'subscription_id' => (string) $subscription->id],
+            );
             break;
 
         case 'payment_intent.payment_failed':

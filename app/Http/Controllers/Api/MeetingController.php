@@ -324,6 +324,22 @@ class MeetingController extends Controller
 
         $meeting->update(['status' => 'completed']);
 
+        $meeting->load(['host', 'guest']);
+
+        $this->push->sendToUser(
+            $meeting->host,
+            'Meeting ended',
+            'Your meeting has ended successfully.',
+            ['type' => 'meeting_completed', 'meeting_id' => (string) $meeting->id],
+        );
+
+        $this->push->sendToUser(
+            $meeting->guest,
+            'Meeting ended',
+            'Your meeting has ended successfully.',
+            ['type' => 'meeting_completed', 'meeting_id' => (string) $meeting->id],
+        );
+
         // TODO: persist per-meeting ratings to a `meeting_reviews` table if star ratings
         // (as seen on the Home screen's Recent Meetings list) need individual history
         // rather than a rolling average on users.rating.

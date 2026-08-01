@@ -4,9 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\VerificationRequest;
+use App\Models\UserVerification;
+use App\Services\PushNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use App\Models\UserVerification;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
@@ -269,6 +270,13 @@ class VerificationController extends Controller
                     'approved_at' => now(),
                     'rejected_at' => null,
                 ]);
+
+                app(PushNotificationService::class)->sendToUser(
+                    $verification->user,
+                    'Verification complete',
+                    'Your identity verification has been approved.',
+                    ['type' => 'verification_complete', 'verification_id' => (string) $verification->id],
+                );
 
                 return response()->json([
                     'status' => true,
