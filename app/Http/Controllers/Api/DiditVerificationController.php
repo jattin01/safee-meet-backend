@@ -7,7 +7,6 @@ use App\Models\UserVerification;
 use App\Support\Verification\TrustScoreCalculator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -15,16 +14,21 @@ class DiditVerificationController extends Controller
 {
     /**
      * Create a Didit verification session for the authenticated user and
-     * return the hosted verification URL for the mobile app to open.
+     * return the hosted verification URL + session token for the SDK flow.
      */
     public function start(Request $request): JsonResponse
     {
         $user = $request->user();
 
+        $callback = config('services.didit.callback_url')
+            ?: url('/api/webhooks/didit');
+
         $response = Http::withHeaders([
             'X-Api-Key' => config('services.didit.api_key'),
-        ])->post(rtrim(config('services.didit.base_url'), '/') . '/v2/session/', [
+            'Content-Type' => 'application/json',
+        ])->post(rtrim(config('services.didit.base_url'), '/') . '/v3/session/', [
             'workflow_id' => config('services.didit.workflow_id'),
+            'callback' => $callback,
             'vendor_data' => (string) $user->id,
         ]);
 
@@ -35,7 +39,9 @@ class DiditVerificationController extends Controller
                 'body' => $response->body(),
             ]);
 
-            return response()->json(['message' => 'Unable to start verification. Please try again.'], 502);
+            return response()->json([
+                'message' => 'Unable to start verification. Please try again.',
+            ], 502);
         }
 
         $data = $response->json();
@@ -48,12 +54,22 @@ class DiditVerificationController extends Controller
                 'didit_decision_status' => $data['status'] ?? 'Not Started',
                 'status' => 'pending',
                 'submitted_at' => now(),
+                'didit_payload' => [
+                    'session_id' => $data['session_id'] ?? null,
+                    'status' => $data['status'] ?? 'Not Started',
+                ],
             ]
         );
 
+        $user->forceFill([
+            'kyc_status' => 'pending',
+        ])->save();
+
         return response()->json([
             'sessionId' => $verification->didit_session_id,
-            'verificationUrl' => $data['url'] ?? null,
+            'sessionToken' => $data['session_token'] ?? null,
+            'verificationUrl' => $data['verification_url'] ?? ($data['url'] ?? null),
+            'status' => $data['status'] ?? 'Not Started',
         ]);
     }
 
@@ -85,18 +101,32 @@ class DiditVerificationController extends Controller
      */
     public function handleWebhook(Request $request): JsonResponse
     {
-        $signature = $request->header('X-Signature');
-        $secret = config('services.didit.webhook_secret');
+        $rawBody = $request->getContent();
+        $secret = (string) config('services.didit.webhook_secret');
+        $signatureHeader = $request->header('X-Signature-V2') ?: $request->header('X-Signature');
+        $timestampHeader = $request->header('X-Timestamp');
 
-        $expected = hash_hmac('sha256', $request->getContent(), (string) $secret);
+        if ($timestampHeader && abs(now()->timestamp - (int) $timestampHeader) > 300) {
+            Log::warning('Didit webhook timestamp too old', [
+                'timestamp' => $timestampHeader,
+            ]);
 
-        if (!$signature || !hash_equals($expected, $signature)) {
+            return response()->json(['message' => 'Expired webhook timestamp'], 401);
+        }
+
+        if ($request->hasHeader('X-Signature-V2')) {
+            $expected = hash_hmac('sha256', $this->canonicalizePayload($rawBody), $secret);
+        } else {
+            $expected = hash_hmac('sha256', $rawBody, $secret);
+        }
+
+        if (!$signatureHeader || !hash_equals($expected, $signatureHeader)) {
             Log::warning('Didit webhook signature mismatch');
 
             return response()->json(['message' => 'Invalid signature'], 401);
         }
 
-        $payload = $request->json()->all();
+        $payload = json_decode($rawBody, true, 512, JSON_THROW_ON_ERROR);
         $sessionId = $payload['session_id'] ?? null;
 
         if (!$sessionId) {
@@ -131,24 +161,56 @@ class DiditVerificationController extends Controller
                 'rejected_at' => now(),
                 'rejection_reason' => $payload['decision']['reason'] ?? 'Verification declined by Didit.',
             ]),
+            'In Review' => $verification->fill([
+                'status' => 'pending',
+            ]),
+            'In Progress', 'Abandoned', 'Expired' => $verification->fill([
+                'status' => 'pending',
+            ]),
             default => null,
         };
 
         $verification->save();
 
         if ($diditStatus === 'Approved' && $user = $verification->user) {
-            $user->update([
+            $user->forceFill([
                 'kyc_status' => 'approved',
-                'verification_level' => 'level1',
-            ]);
+                'kyc_verified_at' => now(),
+            ])->save();
 
             TrustScoreCalculator::recalculate($user);
         } elseif ($diditStatus === 'Declined' && $user = $verification->user) {
-            $user->update(['kyc_status' => 'rejected']);
+            $user->forceFill([
+                'kyc_status' => 'rejected',
+            ])->save();
 
             TrustScoreCalculator::recalculate($user);
         }
 
         return response()->json(['message' => 'ok']);
+    }
+
+    protected function canonicalizePayload(string $rawBody): string
+    {
+        $payload = json_decode($rawBody, true, 512, JSON_THROW_ON_ERROR);
+        $payload = $this->sortKeysRecursively($payload);
+
+        return json_encode(
+            $payload,
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION
+        );
+    }
+
+    protected function sortKeysRecursively(array $value): array
+    {
+        ksort($value);
+
+        foreach ($value as $key => $item) {
+            if (is_array($item)) {
+                $value[$key] = $this->sortKeysRecursively($item);
+            }
+        }
+
+        return $value;
     }
 }
