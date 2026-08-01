@@ -131,29 +131,28 @@ class MemberController extends Controller
     // }
 public function searchByQR(Request $request): JsonResponse
 {
-    \Log::info('QR Search Request', [
-        'method' => $request->method(),
-        'query' => $request->query(),
-        'body' => $request->all(),
-        'code' => $request->input('code'),
-        'url' => $request->fullUrl(),
+    $rawValue = $request->input('code', $request->query('code'));
+
+    \Log::info('QR search: raw scanned value', [
+        'raw' => is_scalar($rawValue) ? $rawValue : json_encode($rawValue),
+        'type' => gettype($rawValue),
     ]);
 
-    $rawCode = $request->input('code');
+    $code = $this->extractSafeeCodeFromQr($rawValue);
 
-    if (!is_string($rawCode) || trim($rawCode) === '') {
+    \Log::info('QR search: extracted code', ['code' => $code]);
+
+    if ($code === null || $code === '') {
         return response()->json([
             'success' => false,
             'message' => 'SAFEE code is required.',
         ], 422);
     }
 
-    $code = strtoupper(trim($rawCode));
-
-    if (strlen($code) < 1) {
+    if (strlen($code) < 4) {
         return response()->json([
             'success' => false,
-            'message' => 'SAFEE code must contain at least 1 character.',
+            'message' => 'SAFEE code must contain at least 4 characters.',
         ], 422);
     }
 
@@ -277,6 +276,67 @@ public function searchByQR(Request $request): JsonResponse
                  updated_at = VALUES(updated_at)',
             [$searcherId, $found->id, $now, $now, $now],
         );
+    }
+
+    /**
+     * A scanned QR can hand back a bare SAFEE code, a deep-link URL with the
+     * code in the path or a query param, or a JSON payload — normalize all
+     * of those into a single uppercase code, or null if nothing usable was
+     * found. Never throws, so a malformed/empty scan degrades to a 422
+     * instead of a 500.
+     */
+    private function extractSafeeCodeFromQr(mixed $rawValue): ?string
+    {
+        if (is_array($rawValue)) {
+            $rawValue = $rawValue['code'] ?? $rawValue['safee_id'] ?? $rawValue['pin'] ?? null;
+        }
+
+        if (!is_string($rawValue)) {
+            return null;
+        }
+
+        $value = trim(rawurldecode(trim($rawValue)));
+
+        if ($value === '') {
+            return null;
+        }
+
+        // JSON payload, e.g. {"code":"SM1234ABCD"}
+        if (str_starts_with($value, '{')) {
+            $decoded = json_decode($value, true);
+            if (is_array($decoded)) {
+                $candidate = $decoded['code'] ?? $decoded['safee_id'] ?? $decoded['pin'] ?? null;
+                if (is_string($candidate) && trim($candidate) !== '') {
+                    return strtoupper(trim($candidate));
+                }
+            }
+        }
+
+        // URL, e.g. https://safeemeet.app/m/SM1234ABCD?ref=qr or ?code=SM1234ABCD
+        if (str_contains($value, '://') || str_starts_with($value, 'safeemeet://')) {
+            $parts = parse_url($value);
+
+            if ($parts !== false) {
+                if (!empty($parts['query'])) {
+                    parse_str($parts['query'], $query);
+                    $candidate = $query['code'] ?? $query['pin'] ?? $query['safee_id'] ?? null;
+                    if (is_string($candidate) && trim($candidate) !== '') {
+                        return strtoupper(trim($candidate));
+                    }
+                }
+
+                if (!empty($parts['path'])) {
+                    $segments = array_values(array_filter(explode('/', $parts['path'])));
+                    $lastSegment = end($segments);
+                    if (is_string($lastSegment) && trim($lastSegment) !== '') {
+                        return strtoupper(trim($lastSegment));
+                    }
+                }
+            }
+        }
+
+        // Plain code — just normalize case.
+        return strtoupper($value);
     }
 
     private function formatMember(User $user): array
