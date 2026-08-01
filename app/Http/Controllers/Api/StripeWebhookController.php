@@ -91,6 +91,7 @@ class StripeWebhookController extends Controller
 
     switch ($eventType) {
         case 'payment_intent.created':
+            log::warning ('inside case 1 pending');
             // yha payment ko pending hi rakhna h 
             $subscription->update([
             'status' => 'pending',
@@ -99,6 +100,7 @@ class StripeWebhookController extends Controller
 
         case 'payment_intent.processing':
             // yha payment ko processing hi rakhna h
+            log::warning ('inside case 2 processing');
             $subscription->update([
             'status' => 'processing',
             ]);
@@ -106,6 +108,7 @@ class StripeWebhookController extends Controller
 
         case 'payment_intent.succeeded':
             // yha payment ko paid krna h 
+            log::warning ('inside case 3 active');
             $subscription->update([
             'status' => 'active',
             'paid_at' => now(),
@@ -113,6 +116,7 @@ class StripeWebhookController extends Controller
         break;
         case 'payment_intent.payment_failed':
             // yha payment ko failed krna h
+            log::warning ('inside case 4 faild');
             $subscription->update([
                 'status' => 'failed',
             ]);
@@ -120,6 +124,7 @@ class StripeWebhookController extends Controller
 
         case 'payment_intent.canceled':
             // yha payment ko failed krna h
+            log::warning ('inside case 5 cancelled');
             $subscription->update([
                 'status' => 'cancelled',
             ]);
