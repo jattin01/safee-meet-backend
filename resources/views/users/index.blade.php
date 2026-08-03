@@ -194,10 +194,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ status: newStatus, reason }),
             });
 
+            const result = await response.json().catch(() => ({}));
+
             if (!response.ok) {
-                const error = await response.json().catch(() => ({}));
-                throw new Error(error.message || 'Unable to update status.');
+                throw new Error(result.message || 'Unable to update status.');
             }
+
+            const statusColor = result.status_color;
+            select.style.background = `${statusColor}26`;
+            select.style.color = statusColor;
+            select.style.borderColor = `${statusColor}4d`;
 
             select.dataset.previousValue = newStatus;
         } catch (error) {

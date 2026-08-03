@@ -248,7 +248,7 @@
                     <img src="https://api.iconify.design/lucide/users.svg?color=%23d97706" class="w-5 h-5" alt="">
                 </div>
                 <div class="flex-1 min-w-0">
-                    <p class="text-sm font-semibold text-white truncate">{{ $otherParty?->name ?? 'Unknown' }}</p>
+                    <p class="text-sm font-semibold text-white truncate">{{ $otherParty?->display_name ?? $otherParty?->name ?? 'Unknown' }}</p>
                     <p class="text-xs text-slate-500">{{ $meeting->meeting_date?->format('M j') ?? '—' }} · {{ $meeting->location ?: 'Location unavailable' }}</p>
                 </div>
                 <div class="text-right shrink-0">
