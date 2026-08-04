@@ -886,6 +886,7 @@ class AuthController extends Controller
                     'account_type'    => $request->input('accountType'),
                     'auth_provider'   => 'phone',
                     'name'            => $request->input('name'),
+                    'display_name'    => $request->input('name'),
                     'email'           => $request->input('email') ? strtolower(trim($request->input('email'))) : null,
                     'phone'           => $phone,
                     'phone_verified_at' => now(),
