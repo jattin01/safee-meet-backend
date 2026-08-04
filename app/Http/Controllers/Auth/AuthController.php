@@ -694,6 +694,100 @@ class AuthController extends Controller
         }
     }
 
+    // ── POST /api/v1/auth/login ───────────────────────────────────────────────
+    // Phone login after OTP verification
+    
+    public function loginUser(Request $request): JsonResponse
+    {
+        $request->validate([
+            'phone' => ['required', 'string', 'regex:/^\+?[1-9]\d{7,14}$/'],
+        ]);
+
+        $phone = $this->normalizePhone($request->input('phone'));
+        $cacheKey = 'phone_otp_' . hash('sha256', $phone);
+        $stored = Cache::get($cacheKey);
+
+        // Debug logging
+        Log::info('Login attempt', [
+            'phone' => $phone,
+            'cache_key' => $cacheKey,
+            'stored_data' => $stored,
+            'has_stored' => !is_null($stored),
+            'is_array' => is_array($stored),
+            'verified' => $stored['verified'] ?? 'not_set',
+            'verified_at' => $stored['verified_at'] ?? 'not_set',
+        ]);
+
+        // Check if OTP was verified
+        if (!$stored || !is_array($stored) || !($stored['verified'] ?? false)) {
+            Log::warning('OTP not verified for login', ['phone' => $phone, 'stored' => $stored]);
+            return response()->json([
+                'success' => false,
+                'code'    => 'OTP_NOT_VERIFIED',
+                'message' => 'Please verify OTP first before login.',
+            ], 422);
+        }
+
+        // Check if verification is still valid (within 10 minutes)
+        $verifiedAt = $stored['verified_at'] ?? 0;
+        $currentTime = now()->timestamp;
+        $timeDiff = $currentTime - $verifiedAt;
+        
+        if ($verifiedAt === 0 || $timeDiff > 600) {
+            Cache::forget($cacheKey);
+            return response()->json([
+                'success' => false,
+                'code'    => 'VERIFICATION_EXPIRED',
+                'message' => 'OTP verification expired. Please verify again.',
+            ], 422);
+        }
+
+        try {
+            // Check if user exists
+            $user = User::where('phone', $phone)->first();
+            
+            if (!$user) {
+                // User not registered
+                Cache::forget($cacheKey);
+                
+                return response()->json([
+                    'success' => false,
+                    'code'    => 'USER_NOT_REGISTERED',
+                    'message' => 'This phone number is not registered. Please use the register endpoint.',
+                    'data'    => [
+                        'phone' => $phone,
+                        'registered' => false,
+                    ],
+                ], 404);
+            }
+
+            // User exists, perform login
+            $this->assertAccountIsActive($user);
+            $user->update(['last_login_at' => now(), 'last_seen_at' => now()]);
+            
+            $user->tokens()->delete();
+            $token = $user->createToken('auth_token')->plainTextToken;
+
+            Cache::forget($cacheKey);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Login successful.',
+                'data'    => [
+                    'accessToken'  => $token,
+                    'refreshToken' => null,
+                    'user'         => new UserResource($user),
+                    'isNewUser'    => false,
+                ],
+            ]);
+        } catch (AuthException $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            Log::error('Login error', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return $this->serverError();
+        }
+    }
+
     // ── POST /api/v1/auth/register ────────────────────────────────────────────
     // Step 3: Complete registration after OTP verification
     
@@ -766,25 +860,18 @@ class AuthController extends Controller
             $existingUser = User::where('phone', $phone)->first();
             
             if ($existingUser) {
-                // User exists, perform login
-                $this->assertAccountIsActive($existingUser);
-                $existingUser->update(['last_login_at' => now(), 'last_seen_at' => now()]);
-                
-                $existingUser->tokens()->delete();
-                $token = $existingUser->createToken('auth_token')->plainTextToken;
-
+                // User already registered - return error
                 Cache::forget($cacheKey);
-
+                
                 return response()->json([
-                    'success' => true,
-                    'message' => 'Login successful.',
+                    'success' => false,
+                    'code'    => 'USER_ALREADY_REGISTERED',
+                    'message' => 'This phone number is already registered. Please use the login endpoint instead.',
                     'data'    => [
-                        'accessToken'  => $token,
-                        'refreshToken' => null,
-                        'user'         => new UserResource($existingUser),
-                        'isNewUser'    => false,
+                        'phone' => $phone,
+                        'registered' => true,
                     ],
-                ]);
+                ], 409); // 409 Conflict
             }
 
             // Register new user (phone registration - no providerToken)
