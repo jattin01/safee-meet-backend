@@ -29,16 +29,29 @@ Route::post('/webhooks/didit', [DiditVerificationController::class, 'handleWebho
 Route::middleware('auth:sanctum')->get('/v1/auth/phone/home', [ProfileController::class, 'home']);
 Route::prefix('v1')->group(function (): void {
 
-    // ── Auth (Firebase — used by the shipped app; public) ──────────────────
+    // ── Auth (compatibility public endpoints; register/login now resolve to backend-owned phone OTP flow) ─
     Route::prefix('auth')->group(function (): void {
-        Route::post('register', [AuthController::class, 'register']);
-        Route::post('login', [AuthController::class, 'login']);
+        // New unified flow endpoints
+        Route::post('send-otp', [AuthController::class, 'sendPhoneOtp'])->middleware('throttle:5,1');
+        Route::post('verify-otp', [AuthController::class, 'verifyPhoneOtpOnly'])->middleware('throttle:10,1');
+        Route::post('register', [AuthController::class, 'registerUser'])->middleware('throttle:10,1');
+        Route::post('login', [AuthController::class, 'unifiedAuth'])->middleware('throttle:10,1');
+        
+        // Legacy endpoints (commented for reference)
+        // Route::post('register', [PhoneOtpAuthController::class, 'register'])->middleware('throttle:5,1');
+        // Route::post('login', [PhoneOtpAuthController::class, 'login'])->middleware('throttle:5,1');
+        
         Route::post('check-user-exists', [AuthController::class, 'checkUserExists']);
         Route::post('verify-phone', [AuthController::class, 'verifyPhone']);
         Route::post('verify-email', [AuthController::class, 'verifyEmail']);
         Route::post('email-otp/send', [AuthController::class, 'sendEmailOtp']);
         Route::post('email-otp/verify', [AuthController::class, 'verifyEmailOtp']);
+        Route::post('phone-otp/send', [AuthController::class, 'sendPhoneOtp'])->middleware('throttle:5,1');
+        Route::post('phone-otp/verify', [AuthController::class, 'verifyPhoneOtp'])->middleware('throttle:10,1');
         Route::post('social/validate', [AuthController::class, 'socialValidate']);
+        
+        // Unified authentication endpoint (handles both email Firebase token and phone OTP)
+        Route::post('unified', [AuthController::class, 'unifiedAuth'])->middleware('throttle:10,1');
     });
 
     // ── Auth (phone + OTP — newer flow, not yet wired into the app; public) ─
@@ -47,7 +60,7 @@ Route::prefix('v1')->group(function (): void {
         Route::post('login', [PhoneOtpAuthController::class, 'login'])->middleware('throttle:5,1');
         Route::post('login-or-register', [PhoneOtpAuthController::class, 'loginOrRegister'])->middleware('throttle:5,1');
         Route::post('verify-otp', [PhoneOtpAuthController::class, 'verifyOtp'])->middleware('throttle:10,1');
-        // Route::get('home',[ProfileController::class,'home'])->middleware('throttle:5,1');
+        Route::delete('delete-account', [PhoneOtpAuthController::class, 'deleteAccountByPhone']);
     });
 
     //  Route::post('webhook', [WebhookController::class, 'webhook']);

@@ -7,6 +7,7 @@ use App\Models\UserVerification;
 use App\Support\Verification\TrustScoreCalculator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use App\Services\SafetyPointService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -170,6 +171,17 @@ class DiditVerificationController extends Controller
             ]),
             default => null,
         };
+
+        if($diditStatus === 'Approved') {
+            app(SafetyPointService::class)->addPoints(
+                userId: $verification->user_id,
+                eventKey: 'kyc_approved',
+                points: 25,
+                referenceType: 'user_verification',
+                referenceId: $verification->id,
+                description: 'KYC verification approved by Didit.'
+            );
+        }
 
         $verification->save();
 

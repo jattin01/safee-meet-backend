@@ -8,6 +8,7 @@ use App\Models\MeetingReview;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use App\Services\SafetyPointService;
 
 class ReviewController extends Controller
 {
@@ -122,6 +123,17 @@ class ReviewController extends Controller
                 'responsive'   => $validated['responsive'] ?? null,
             ]
         );
+
+        if($validated['rating'] >= 4){
+            app(SafetyPointService::class)->addPoints(
+                userId: $revieweeId,
+                eventKey: 'positive_review',
+                points: 5,
+                referenceType: 'meeting_review',
+                referenceId: $review->id,
+                description: 'Received a positive review with rating ' . $validated['rating']
+            );
+        }
 
         // Calculate average rating of the reviewee
         $avgRating = MeetingReview::where('reviewee_id', $revieweeId)
