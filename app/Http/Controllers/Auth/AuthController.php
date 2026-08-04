@@ -482,9 +482,11 @@ class AuthController extends Controller
         $request->validate([
             'phone' => ['required', 'string', 'regex:/^\+?[1-9]\d{7,14}$/'],
             'otp'   => ['required', 'string', 'size:6'],
+            'name'  => ['nullable', 'string', 'max:150'],
         ]);
 
         $phone = $this->normalizePhone($request->input('phone'));
+        $name = $request->input('name');
         $cacheKey = 'phone_otp_' . hash('sha256', $phone);
         $stored = Cache::get($cacheKey);
 
@@ -542,9 +544,11 @@ class AuthController extends Controller
                 ]);
             } catch (UserNotFound) {
                 // Create new Firebase user
+                $displayName = $name ?? $stored['name'] ?? 'SAFEE User';
+                
                 $userData = [
                     'phoneNumber' => $phone,
-                    'displayName' => $stored['name'] ?? 'SAFEE User',
+                    'displayName' => $displayName,
                 ];
                 
                 $firebaseUser = $firebaseAuth->createUser($userData);
@@ -553,6 +557,7 @@ class AuthController extends Controller
                 
                 Log::info('Firebase user created', [
                     'phone' => $phone,
+                    'display_name' => $displayName,
                     'firebase_uid' => $firebaseUid,
                 ]);
             }
