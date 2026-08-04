@@ -68,7 +68,7 @@
                                 <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:{{ $incident->status_color }};"></span>
                             </td>
                             <td style="padding:16px 10px;">
-                                <div style="font-size:13px; font-weight:600; color:#fff;">{{ $incident->reporter->name ?? 'Anonymous' }}</div>
+                                <div style="font-size:13px; font-weight:600; color:#fff;">{{ $incident->reporter->display_name ?? $incident->reporter->name ?? 'Anonymous' }}</div>
                                 <div style="font-size:11px; color:#6b7280; margin-top:2px;">{{ $incident->type_label }} · {{ $incident->meeting->location ?? 'Location unavailable' }}</div>
                             </td>
                             <td style="padding:16px 10px; text-align:right; white-space:nowrap;">
