@@ -15,6 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Kreait\Firebase\Contract\Auth as FirebaseAuth;
 use Kreait\Firebase\Exception\Auth\UserNotFound;
@@ -474,6 +475,13 @@ class AuthController extends Controller
         ]);
     }
 
+    // ── POST /api/v1/auth/resend-otp ────────────────────────────────────────
+
+    public function resendPhoneOtp(Request $request): JsonResponse
+    {
+        return $this->sendPhoneOtp($request);
+    }
+
     // ── POST /api/v1/auth/verify-otp ──────────────────────────────────────────
     // Step 2: Verify OTP only (does not register/login user)
     
@@ -798,15 +806,35 @@ class AuthController extends Controller
     
     public function registerUser(Request $request, AuthService $authService): JsonResponse
     {
-        $request->validate([
-            'phone'           => ['required', 'string', 'regex:/^\+?[1-9]\d{7,14}$/'],
+        $request->merge([
+            'phone' => $request->filled('phone')
+                ? $this->normalizePhone($request->input('phone'))
+                : $request->input('phone'),
+            'email' => $request->filled('email')
+                ? strtolower(trim($request->input('email')))
+                : $request->input('email'),
+        ]);
+
+        $validator = Validator::make($request->all(), [
+            'phone'           => ['required', 'string', 'regex:/^\+?[1-9]\d{7,14}$/', 'unique:users,phone'],
             'provider'        => ['required', 'string', 'in:phone,email'],
             'name'            => ['required', 'string', 'max:150'],
-            'email'           => ['nullable', 'email', 'max:200'],
+            'email'           => ['nullable', 'email', 'max:200', 'unique:users,email'],
             'accountType'     => ['required', 'string', 'in:normal,employer'],
             'companyName'     => ['nullable', 'string', 'max:255'],
             'consentAccepted' => ['required', 'boolean'],
+        ], [
+            'phone.unique' => 'An account already exists for this mobile number. Please log in.',
+            'email.unique' => 'This email address is already registered with another account.',
         ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => $validator->errors()->first(),
+                'errors' => $validator->errors(),
+            ], 422);
+        }
 
         $phone = $this->normalizePhone($request->input('phone'));
         $cacheKey = 'phone_otp_' . hash('sha256', $phone);
@@ -861,22 +889,43 @@ class AuthController extends Controller
         }
 
         try {
-            // Check if user already exists
+            // Check if user already exists by phone
             $existingUser = User::where('phone', $phone)->first();
             
             if ($existingUser) {
-                // User already registered - return error
+                // User already registered with this phone - return error
                 Cache::forget($cacheKey);
                 
                 return response()->json([
                     'success' => false,
-                    'code'    => 'USER_ALREADY_REGISTERED',
+                    'code'    => 'PHONE_ALREADY_REGISTERED',
                     'message' => 'This phone number is already registered. Please use the login endpoint instead.',
                     'data'    => [
                         'phone' => $phone,
                         'registered' => true,
                     ],
                 ], 409); // 409 Conflict
+            }
+
+            // Check if email already exists (if email is provided)
+            $email = $request->input('email');
+            if ($email) {
+                $emailExists = User::where('email', strtolower(trim($email)))->first();
+                
+                if ($emailExists) {
+                    // Email already registered - return error
+                    Cache::forget($cacheKey);
+                    
+                    return response()->json([
+                        'success' => false,
+                        'code'    => 'EMAIL_ALREADY_REGISTERED',
+                        'message' => 'This email address is already registered with another account.',
+                        'data'    => [
+                            'email' => $email,
+                            'registered' => true,
+                        ],
+                    ], 409); // 409 Conflict
+                }
             }
 
             // Register new user (phone registration - no providerToken)

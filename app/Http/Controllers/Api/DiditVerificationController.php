@@ -143,6 +143,7 @@ class DiditVerificationController extends Controller
             return response()->json(['message' => 'Unknown session'], 404);
         }
 
+        $wasAlreadyApproved = $verification->status === 'approved';
         $diditStatus = $payload['status'] ?? $verification->didit_decision_status;
 
         $verification->fill([
@@ -172,24 +173,33 @@ class DiditVerificationController extends Controller
             default => null,
         };
 
-        if($diditStatus === 'Approved') {
+        $verification->save();
+
+        if ($diditStatus === 'Approved' && !$wasAlreadyApproved) {
             app(SafetyPointService::class)->addPoints(
                 userId: $verification->user_id,
                 eventKey: 'kyc_approved',
                 points: 25,
                 referenceType: 'user_verification',
-                referenceId: $verification->id,
                 description: 'KYC verification approved by Didit.'
             );
         }
 
-        $verification->save();
-
         if ($diditStatus === 'Approved' && $user = $verification->user) {
-            $user->forceFill([
+            $userUpdates = [
                 'kyc_status' => 'approved',
                 'kyc_verified_at' => now(),
-            ])->save();
+            ];
+
+            if (in_array($user->verification_level, [null, 'none'], true)) {
+                $userUpdates['verification_level'] = 'level1';
+            }
+
+            $user->forceFill($userUpdates)->save();
+
+            if ($verification->verification_level < 1) {
+                $verification->forceFill(['verification_level' => 1])->save();
+            }
 
             TrustScoreCalculator::recalculate($user);
         } elseif ($diditStatus === 'Declined' && $user = $verification->user) {
