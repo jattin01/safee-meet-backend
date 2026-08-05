@@ -187,7 +187,7 @@ class DiditVerificationController extends Controller
 
         if ($diditStatus === 'Approved' && $user = $verification->user) {
             $userUpdates = [
-                'kyc_status' => 'approved',
+                'kyc_status' => 'verified',
                 'kyc_verified_at' => now(),
             ];
 
