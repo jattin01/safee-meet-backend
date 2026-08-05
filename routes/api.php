@@ -33,6 +33,7 @@ Route::prefix('v1')->group(function (): void {
     Route::prefix('auth')->group(function (): void {
         // New unified flow endpoints
         Route::post('send-otp', [AuthController::class, 'sendPhoneOtp'])->middleware('throttle:5,1');
+        Route::post('resend-otp', [AuthController::class, 'resendPhoneOtp'])->middleware('throttle:5,1');
         Route::post('verify-otp', [AuthController::class, 'verifyPhoneOtpOnly'])->middleware('throttle:10,1');
         Route::post('register', [AuthController::class, 'registerUser'])->middleware('throttle:10,1');
         Route::post('login', [AuthController::class, 'loginUser'])->middleware('throttle:10,1');
