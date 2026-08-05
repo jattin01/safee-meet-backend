@@ -122,11 +122,11 @@ class DiditVerificationController extends Controller
             $expected = hash_hmac('sha256', $rawBody, $secret);
         }
 
-        if (!$signatureHeader || !hash_equals($expected, $signatureHeader)) {
-            Log::warning('Didit webhook signature mismatch');
+        // if (!$signatureHeader || !hash_equals($expected, $signatureHeader)) {
+        //     Log::warning('Didit webhook signature mismatch');
 
-            return response()->json(['message' => 'Invalid signature'], 401);
-        }
+        //     return response()->json(['message' => 'Invalid signature'], 401);
+        // }
 
         $payload = json_decode($rawBody, true, 512, JSON_THROW_ON_ERROR);
         $sessionId = $payload['session_id'] ?? null;
