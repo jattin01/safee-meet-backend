@@ -10,6 +10,7 @@ use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Resources\Auth\UserResource;
 use App\Models\User;
 use App\Services\Auth\AuthService;
+use App\Services\SafetyPointService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -982,6 +983,14 @@ class AuthController extends Controller
 
                 // Create default notification preferences
                 $user->notificationPreferences()->create([]);
+
+                app(SafetyPointService::class)->addPoints(
+                    userId: $user->id,
+                    eventKey: 'phone_verified',
+                    points: 10,
+                    referenceType: 'user',
+                    description: 'Phone number verified during registration.'
+                );
 
                 return $user;
             });
