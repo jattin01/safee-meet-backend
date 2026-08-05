@@ -26,6 +26,7 @@ class UserResource extends JsonResource
             'verificationLevel'  => $verification?->verification_level ?? 0,
             'verificationStatus' => $verification?->status ?? 'not_submitted',
             'trustScore'         => $this->trust_score,
+            'safetyScore'        => $this->safety_score,
             'trustTier'          => VerificationLevelResolver::fromUser($this->kyc_status, $this->trust_tier),
             'meetingCount'       => $this->meetingCount(),
             'pinSearchCount'     => $this->pinSearchCount(),
