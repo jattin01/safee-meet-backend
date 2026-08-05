@@ -482,6 +482,27 @@ class AuthController extends Controller
         return $this->sendPhoneOtp($request);
     }
 
+    public function sendRegisterOtp(Request $request): JsonResponse
+    {
+        $request->validate([
+            'phone' => ['required', 'string', 'regex:/^\+?[1-9]\d{7,14}$/'],
+            'name' => ['nullable', 'string', 'max:150'],
+        ]);
+
+        $phone = $this->normalizePhone($request->input('phone'));
+
+        if (User::where('phone', $phone)->exists()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'An account already exists for this mobile number. Please log in.',
+            ], 409);
+        }
+
+        $request->merge(['phone' => $phone]);
+
+        return $this->sendPhoneOtp($request);
+    }
+
     // ── POST /api/v1/auth/verify-otp ──────────────────────────────────────────
     // Step 2: Verify OTP only (does not register/login user)
     
