@@ -182,7 +182,7 @@ class User extends Authenticatable
 
     public function userVerification()
     {
-        return $this->hasOne(UserVerification::class);
+        return $this->hasOne(UserVerification::class)->latestOfMany();
     }
 
     public function trustScoreSnapshots()
