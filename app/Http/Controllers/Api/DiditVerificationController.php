@@ -185,6 +185,16 @@ class DiditVerificationController extends Controller
             );
         }
 
+         if ($diditStatus === 'Declined') {
+            app(SafetyPointService::class)->addPoints(
+                userId: $verification->user_id,
+                eventKey: 'kyc_declined',
+                points: -25,
+                referenceType: 'user_verification',
+                description: 'KYC verification declined by Didit.'
+            );
+        }
+
         if ($diditStatus === 'Approved' && $user = $verification->user) {
             $userUpdates = [
                 'kyc_status' => 'verified',
