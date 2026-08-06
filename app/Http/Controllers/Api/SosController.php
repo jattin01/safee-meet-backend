@@ -73,7 +73,6 @@ class SosController extends Controller
                 eventKey: 'sos_misuse',
                 points: -20,
                 referenceType: 'incident',
-                referenceId: $incident->id,
                 description: 'Multiple SOS triggers detected in a single day.'
             );
 

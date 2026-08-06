@@ -130,8 +130,7 @@ class ReviewController extends Controller
                 eventKey: 'positive_review',
                 points: 5,
                 referenceType: 'meeting_review',
-                referenceId: $review->id,
-                description: 'Received a positive review with rating ' . $validated['rating']
+                description: 'Received a positive review with rating',
             );
         }
 
