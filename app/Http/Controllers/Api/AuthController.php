@@ -9,9 +9,15 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use App\Services\SafetyPointService;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Http\JsonResponse;
+use Kreait\Firebase\Contract\Auth as FirebaseAuth;
+use Kreait\Firebase\Exception\Auth\UserNotFound;
 
 
 class AuthController extends Controller
@@ -76,6 +82,7 @@ class AuthController extends Controller
      */
     public function verifyOtp(Request $request): JsonResponse
     {
+       
         $request->merge(['phone' => $this->normalizePhone((string) $request->input('phone'))]);
 
         $validated = $request->validate([
@@ -86,6 +93,7 @@ class AuthController extends Controller
 
         $cacheKey = $this->otpCacheKey($validated['phone']);
         $challenge = Cache::get($cacheKey);
+       
 
         if (! is_array($challenge)) {
             return response()->json([
@@ -122,11 +130,7 @@ class AuthController extends Controller
 
             if (! $user) {
                 $user = User::create([
-                    // 'id' is set by User::booted()'s creating hook, not here —
-                    // it isn't mass-assignable so passing it in this array is a no-op.
-                    // This deployment's users table has no plain "name"
-                    // column — display_name is the real one.
-                    'display_name' => $challenge['name'],
+                    'name' => $challenge['name'],
                     'phone' => $validated['phone'],
                     'phone_verified_at' => now(),
                     'safee_pin' => User::generateSafeePin(),
@@ -134,6 +138,13 @@ class AuthController extends Controller
                     'status' => 'active',
                     'auth_provider' => 'phone',
                 ]);
+                app(SafetyPointService::class)->addPoints(
+                    userId: $user->id,
+                    eventKey: 'phone_verified',
+                    points: 10,
+                    referenceType: 'user',
+                    description: 'Phone number verified during registration.'
+                );
             } elseif (! $user->phone_verified_at) {
                 $user->forceFill(['phone_verified_at' => now()])->save();
             }
@@ -157,6 +168,7 @@ class AuthController extends Controller
         );
 
         $token = $user->createToken($validated['device_name'] ?? 'safee-meet-app')->plainTextToken;
+        $firebaseData = $this->syncFirebaseUser($user, $validated['phone'], $challenge['name'] ?? null);
 
         return response()->json([
             'message' => ($challenge['intent'] ?? null) === 'register'
@@ -165,14 +177,138 @@ class AuthController extends Controller
             'data' => [
                 'token_type' => 'Bearer',
                 'access_token' => $token,
+                'refresh_token' => null,
+                'firebase_custom_token' => $firebaseData['custom_token'],
+                'firebase_uid' => $firebaseData['firebase_uid'],
                 'is_new_user' => ($challenge['intent'] ?? null) === 'register',
                 'user' => $user,
             ],
         ], ($challenge['intent'] ?? null) === 'register' ? 201 : 200);
     }
 
+    /**
+     * Delete a user account by phone number, no bearer token required.
+     * Removes dependent records in a safe order before soft-deleting the user.
+     */
+    public function deleteAccountByPhone(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'phone' => ['required', 'regex:/^\+?[1-9]\d{7,14}$/'],
+        ]);
+
+        $phone = $this->normalizePhone((string) $validated['phone']);
+        $user = User::where('phone', $phone)->first();
+
+        if (! $user) {
+            return response()->json([
+                'message' => 'No account exists for this mobile number.',
+            ], 404);
+        }
+
+        DB::transaction(function () use ($user): void {
+            $user->tokens()->delete();
+            $user->currentAccessToken()?->delete();
+
+            $user->notifications()->delete();
+            $user->notificationPreferences()->delete();
+
+            if (Schema::hasTable('user_devices')) {
+                $user->devices()->delete();
+            }
+
+            if (Schema::hasTable('auth_sessions')) {
+                $user->authSessions()->delete();
+            }
+
+            if (Schema::hasTable('login_events')) {
+                $user->loginEvents()->delete();
+            }
+
+            if (Schema::hasTable('user_roles')) {
+                $user->roles()->delete();
+            }
+
+            if (Schema::hasTable('identity_verifications')) {
+                $user->identityVerifications()->delete();
+            }
+
+            if (Schema::hasTable('user_verifications')) {
+                $user->userVerification()->delete();
+            }
+
+            if (Schema::hasTable('trust_score_snapshots')) {
+                $user->trustScoreSnapshots()->delete();
+            }
+
+            if (Schema::hasTable('user_badges')) {
+                $user->badges()->delete();
+            }
+
+            if (Schema::hasTable('risk_flags')) {
+                $user->riskFlags()->delete();
+            }
+
+            if (Schema::hasTable('safe_pins')) {
+                $user->safePin()->delete();
+            }
+
+            if (Schema::hasTable('chat_user_mappings')) {
+                $user->chatMapping()->delete();
+            }
+
+            if (Schema::hasTable('emergency_contacts')) {
+                $user->emergencyContacts()->delete();
+            }
+
+            if (Schema::hasTable('subscriptions')) {
+                $user->subscriptions()->delete();
+            }
+
+            if (Schema::hasTable('payments')) {
+                $user->payments()->delete();
+            }
+
+            if (Schema::hasTable('verification_requests')) {
+                $user->verificationRequests()->delete();
+            }
+
+            if (Schema::hasTable('search_history')) {
+                $user->searchHistory()->delete();
+            }
+
+            \App\Models\Meeting::where('host_user_id', $user->id)
+                ->orWhere('guest_user_id', $user->id)
+                ->delete();
+
+            if (Schema::hasTable('meeting_locations')) {
+                \App\Models\MeetingLocation::where('user_id', $user->id)->delete();
+            }
+
+            if (Schema::hasTable('incidents')) {
+                \App\Models\Incident::where('reporter_user_id', $user->id)->delete();
+            }
+
+            if (Schema::hasTable('sos_incidents')) {
+                \App\Models\SosIncident::where('triggered_by_user_id', $user->id)->delete();
+            }
+
+            if (Schema::hasTable('search_history')) {
+                \App\Models\SearchHistory::where('searcher_id', $user->id)
+                    ->orWhere('found_user_id', $user->id)
+                    ->delete();
+            }
+
+            $user->delete();
+        });
+
+        return response()->json([
+            'message' => 'Account deleted successfully.',
+        ]);
+    }
+
     public function me(Request $request): JsonResponse
     {
+        
         return response()->json(['data' => ['user' => $request->user()]]);
     }
 
@@ -204,23 +340,127 @@ class AuthController extends Controller
             'attempts' => 0,
         ], now()->addMinutes(self::OTP_TTL_MINUTES));
 
-        // Integrate the SMS provider here. Until then, EXPOSE_DEV_OTP=true
-        // (see config('app.expose_dev_otp')) echoes the OTP back for
-        // testing — flip that .env value off once a real provider is wired.
+        // Send OTP via MSG91 SMS service
+        $smsSent = false;
+        $smsError = null;
+
+        try {
+            // Remove '+' prefix from phone number for MSG91
+            $phoneNumber = ltrim($phone, '+');
+
+            $response = Http::timeout(15)->get(
+                'https://control.msg91.com/api/v5/otp',
+                [
+                    'otp'         => $otp,
+                    'mobile'      => $phoneNumber,
+                    'authkey'     => config('services.msg91.auth_key'),
+                    'otp_length'  => config('services.msg91.otp_length', 6),
+                    'template_id' => config('services.msg91.template_id'),
+                ]
+            );
+
+            if ($response->successful()) {
+                $smsSent = true;
+                Log::info('OTP SMS sent successfully via MSG91', [
+                    'phone' => $phone,
+                    'intent' => $intent,
+                    'response' => $response->json(),
+                ]);
+            } else {
+                $smsError = $response->body();
+                Log::error('Failed to send OTP SMS via MSG91', [
+                    'phone' => $phone,
+                    'status' => $response->status(),
+                    'error' => $smsError,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            $smsError = $e->getMessage();
+            Log::error('Exception while sending OTP SMS via MSG91', [
+                'phone' => $phone,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+        }
+
         $data = [
             'phone' => $phone,
             'flow' => $intent,
-            'expires_in' => self::OTP_TTL_MINUTES * 60,
+            'expires_in' => self::OTP_TTL_MINUTES * 600,
         ];
 
+        // For development: expose OTP if configured
         if (config('app.expose_dev_otp')) {
             $data['dev_otp'] = $otp;
+        }
+
+        // If SMS failed and we're not in dev mode, return error
+        if (!$smsSent && !config('app.expose_dev_otp')) {
+            return response()->json([
+                'message' => 'Failed to send OTP. Please try again.',
+                'error' => 'SMS delivery failed',
+            ], 500);
         }
 
         return response()->json([
             'message' => 'OTP sent successfully.',
             'data' => $data,
         ]);
+    }
+
+    private function syncFirebaseUser(User $user, string $phone, ?string $name = null): array
+    {
+        $firebaseAuth = app(FirebaseAuth::class);
+        $firebaseUid = $user->firebase_uid;
+        $firebaseUserFound = false;
+
+        try {
+            if ($firebaseUid) {
+                $firebaseUser = $firebaseAuth->getUser($firebaseUid);
+                $firebaseUid = $firebaseUser->uid;
+                $firebaseUserFound = true;
+            } else {
+                $firebaseUser = $firebaseAuth->getUserByPhoneNumber($phone);
+                $firebaseUid = $firebaseUser->uid;
+                $firebaseUserFound = true;
+            }
+        } catch (UserNotFound) {
+            $userData = [
+                'phoneNumber' => $phone,
+                'displayName' => $name ?? $user->name ?? 'SAFEE User',
+            ];
+            
+            // Only include email if it's not null
+            if ($user->email) {
+                $userData['email'] = $user->email;
+            }
+            
+            $firebaseUser = $firebaseAuth->createUser($userData);
+            $firebaseUid = $firebaseUser->uid;
+            $firebaseUserFound = false;
+        } catch (\Throwable $e) {
+            Log::error('Firebase sync failed during phone OTP verify.', [
+                'user_id' => $user->id,
+                'phone' => $phone,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+
+        Log::info('Firebase sync status during phone OTP verify.', [
+            'user_id' => $user->id,
+            'phone' => $phone,
+            'firebase_user_found' => $firebaseUserFound,
+            'firebase_uid' => $firebaseUid,
+        ]);
+
+        $user->forceFill(['firebase_uid' => $firebaseUid])->save();
+
+        return [
+            'firebase_uid' => $firebaseUid,
+            'custom_token' => $firebaseAuth->createCustomToken($firebaseUid)->toString(),
+        ];
     }
 
     private function normalizePhone(string $phone): string

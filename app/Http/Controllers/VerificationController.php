@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\UserVerification;
 use App\Services\Verification\IdentityVerificationService;
 use App\Support\Verification\TrustScoreCalculator;
+use App\Support\Verification\VerificationDocumentPresenter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -32,26 +33,33 @@ class VerificationController extends Controller
     public function index()
     {
         $verifications = UserVerification::with('user')
+            ->latestPerUser()
             ->where('status', 'pending')
             ->latest('submitted_at')
             ->get();
 
         $counts = [
-            'pending' => UserVerification::where('status', 'pending')->count(),
-            'approvedToday' => UserVerification::where('status', 'approved')
+            'pending' => UserVerification::latestPerUser()->where('status', 'pending')->count(),
+            'approvedToday' => UserVerification::latestPerUser()->where('status', 'approved')
                 ->whereDate('approved_at', today())
                 ->count(),
-            'rejected' => UserVerification::where('status', 'rejected')->count(),
+            'rejected' => UserVerification::latestPerUser()->where('status', 'rejected')->count(),
         ];
 
         $users = User::with('userVerification')
             ->latest()
             ->paginate(15, ['*'], 'users_page');
 
+        $documentDetails = $verifications
+            ->merge($users->getCollection()->pluck('userVerification')->filter())
+            ->unique('id')
+            ->mapWithKeys(fn (UserVerification $item) => [$item->id => VerificationDocumentPresenter::make($item)]);
+
         return view('verification.index', [
             'verifications' => $verifications,
             'counts' => $counts,
             'users' => $users,
+            'documentDetails' => $documentDetails,
         ]);
     }
 

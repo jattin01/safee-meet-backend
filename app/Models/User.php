@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\HasApiTokens;
 use App\Models\EmergencyContact;
+use App\Models\UserSafetyPointHistory;
 
 
 class User extends Authenticatable
@@ -22,6 +23,9 @@ class User extends Authenticatable
     // Detect the live column type at runtime — same pattern as
     // Meeting::usesUlidKey()/EmergencyContact::usesUlidKey() — so this model
     // works correctly before, during, and after that migration.
+
+
+
     public function getIncrementing()
     {
         return !static::usesUlidKey();
@@ -120,6 +124,7 @@ class User extends Authenticatable
     protected $appends = [
         'safee_id',
         'safee_pin',
+        'safety_score',
     ];
 
     protected function casts(): array
@@ -177,7 +182,7 @@ class User extends Authenticatable
 
     public function userVerification()
     {
-        return $this->hasOne(UserVerification::class);
+        return $this->hasOne(UserVerification::class)->latestOfMany();
     }
 
     public function trustScoreSnapshots()
@@ -438,5 +443,13 @@ class User extends Authenticatable
             'employer' => 'Employer',
             default => 'Individual',
         };
+    }
+
+    public function getSafetyScoreAttribute(): int
+    {
+        $points = UserSafetyPointHistory::where('user_id', $this->id)
+            ->sum('points');
+
+        return min(max($points, 0), 100);
     }
 }

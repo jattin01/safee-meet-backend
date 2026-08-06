@@ -48,4 +48,10 @@ return [
         'callback_url' => env('DIDIT_CALLBACK_URL'),
     ],
 
+    'msg91' => [
+        'auth_key' => env('MSG91_AUTH_KEY'),
+        'template_id' => env('MSG91_TEMPLATE_ID'),
+        'otp_length' => env('MSG91_OTP_LENGTH', 6),
+    ],
+
 ];

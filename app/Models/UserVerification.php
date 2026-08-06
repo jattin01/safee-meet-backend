@@ -2,12 +2,20 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class UserVerification extends Model
 {
+    public function scopeLatestPerUser(Builder $query): Builder
+    {
+        return $query->whereIn('id', static::query()
+            ->selectRaw('MAX(id)')
+            ->groupBy('user_id'));
+    }
+
     protected $fillable = [
         'user_id',
         'face_id_image',
@@ -53,6 +61,7 @@ class UserVerification extends Model
     {
         return $this->belongsTo(Admin::class, 'reviewed_by_admin_id');
     }
+
     public function verification(): HasOne
     {
         return $this->hasOne(UserVerification::class);

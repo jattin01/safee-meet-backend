@@ -7,6 +7,7 @@ use App\Models\Incident;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use App\Models\Meeting;
+use App\Services\SafetyPointService;
 
 class SosController extends Controller
 {
@@ -59,6 +60,23 @@ class SosController extends Controller
         // TODO: integrate real SMS/push notification dispatch to trusted contacts here.
         // TODO (SOW "Future"): Law Enforcement Integration hook goes here once available.
         // foreach ($contacts as $contact) { app(NotificationService::class)->sendSos($contact, $incident); }
+        
+        $todaySosCount = Incident::where('reporter_user_id', $user->id)
+            ->where('type', 'sos')
+            ->whereDate('created_at', today())
+            ->count();
+
+        if ($todaySosCount > 1) {
+
+            app(SafetyPointService::class)->addPoints(
+                userId: $user->id,
+                eventKey: 'sos_misuse',
+                points: -20,
+                referenceType: 'incident',
+                description: 'Multiple SOS triggers detected in a single day.'
+            );
+
+        } 
 
         return response()->json([
             'message' => 'Emergency SOS activated. Trusted contacts are being notified.',
