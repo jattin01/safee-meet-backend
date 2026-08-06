@@ -54,7 +54,7 @@ class MemberController extends Controller
                 'success' => false,
                 'message' => 'Your plan has expired. Subscribe to continue searching members.',
                 'subscription_required' => true,
-            ], 403);
+            ], 200);
         }
 
         $alreadySearchedThisMonth = $this->hasSearchedThisMonth($request->user()->id, $user->id);
@@ -64,7 +64,7 @@ class MemberController extends Controller
                 'success' => false,
                 'message' => 'You have reached your monthly SAFEE PIN search limit. Upgrade your plan to search more.',
                 'required_feature' => 'pin_search',
-            ], 403);
+            ], 200);
         }
 
         if (!$alreadySearchedThisMonth) {
@@ -266,7 +266,7 @@ public function searchByQR(Request $request): JsonResponse
     }
 
     Log::info('QR search member found.', [
-        'searcher_id' => $searcherId,
+        'searcher_id' => $searcherId, 
         'found_user_id' => $user->id,
         'masked_code' => $maskedCode,
     ]);
@@ -293,7 +293,7 @@ public function searchByQR(Request $request): JsonResponse
             'success' => false,
             'message' => 'Your plan has expired. Subscribe to continue searching members.',
             'subscription_required' => true,
-        ], 403);
+        ], 200);
     }
 
     Log::info('QR search subscription verified.', [
@@ -313,7 +313,7 @@ public function searchByQR(Request $request): JsonResponse
             'success' => false,
             'message' => 'You have reached your monthly SAFEE PIN search limit. Upgrade your plan to search more.',
             'required_feature' => 'pin_search',
-        ], 403);
+        ], 200);
     }
 
     Log::info('QR search limit verified.', [
