@@ -444,6 +444,7 @@ public function searchByQR(Request $request): JsonResponse
             'safeePIN'          => $user->safee_pin,
             'avatarUrl'         => $user->avatar_url,
             'trustScore'        => (int) ($user->trust_score ?? 0),
+            'safetyScore'       => (int) ($user->safety_score ?? 0),
             'verificationLevel' => VerificationLevelResolver::fromUser($user->kyc_status, $user->trust_tier),
             'subscriptionPlan'  => 'free',
             'rating'            => 0.0,
