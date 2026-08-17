@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Feature;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class SubscriptionsController extends Controller
@@ -13,7 +15,7 @@ class SubscriptionsController extends Controller
     public function index(Request $request)
     {
         if ($request->isMethod('post')) {
-            
+
             $action = $request->input('action', 'store');
 
             if ($action === 'delete') {
@@ -44,7 +46,9 @@ class SubscriptionsController extends Controller
                     'features.required' => 'Add at least one feature.',
                 ]);
 
-                SubscriptionPlan::where('id', $validated['id'])->update([
+                $plan = SubscriptionPlan::findOrFail($validated['id']);
+
+                $plan->update([
                     'name' => $validated['name'],
                     // Keep the slug in sync with the name. Excluding the row's
                     // own id means an unchanged name keeps the same slug, and a
@@ -56,6 +60,10 @@ class SubscriptionsController extends Controller
                     'trial_days' => $validated['trial_days'] ?: null,
                     'features' => $this->splitFeatures($validated['features']),
                 ]);
+
+                // Keep the comparison-table entitlements (plan_feature pivot)
+                // in sync with whatever was checked/typed in the feature grid.
+                $this->syncComparisonFeatures($plan, $request->input('plan_features', []));
 
                 return redirect()->route('subscription')->with('success', 'Plan updated successfully.');
             }
@@ -70,7 +78,7 @@ class SubscriptionsController extends Controller
                 'features.required' => 'Add at least one feature.',
             ]);
 
-            SubscriptionPlan::create([
+            $plan = SubscriptionPlan::create([
                 'name' => $validated['name'],
                 'slug' => $this->uniqueSlug($validated['name']),
                 'monthly_price' => $validated['monthly_price'],
@@ -82,6 +90,11 @@ class SubscriptionsController extends Controller
                 'sort_order' => (int) SubscriptionPlan::max('sort_order') + 1,
                 'is_active' => true,
             ]);
+
+            // Populate the comparison-table entitlements (plan_feature pivot)
+            // right away, so a brand-new plan shows up correctly on the
+            // side-by-side comparison instead of every cell defaulting to "No".
+            $this->syncComparisonFeatures($plan, $request->input('plan_features', []));
 
             return redirect()->route('subscription')->with('success', 'New plan added successfully.');
         }
@@ -100,7 +113,50 @@ class SubscriptionsController extends Controller
             ->get()
             ->sum(fn (Subscription $sub) => $sub->billing_cycle === 'yearly' ? $sub->price / 12 : $sub->price);
 
-        return view('subscription.index', compact('plans', 'userCountsByPlan', 'mrr'));
+        // Comparison-feature catalog, grouped for the checklist on the
+        // create/edit forms (same source of truth as Admin\FeatureController).
+        $featureGroups = Feature::active()->orderBy('sort_order')->get()->groupBy('group');
+
+        // planFeatureMatrix[plan_id][feature_id] = ['included' => bool, 'value' => string|null]
+        // Used to pre-fill each plan's checklist when its edit modal opens.
+        $planFeatureMatrix = [];
+        foreach (DB::table('plan_feature')->get() as $row) {
+            $planFeatureMatrix[$row->plan_id][$row->feature_id] = [
+                'included' => (bool) $row->included,
+                'value' => $row->value,
+            ];
+        }
+
+        return view('subscription.index', compact('plans', 'userCountsByPlan', 'mrr', 'featureGroups', 'planFeatureMatrix'));
+    }
+
+    /**
+     * Sync a plan's comparison-table entitlements (plan_feature pivot) from
+     * the posted feature checklist. Mirrors Admin\FeatureController::saveMatrix
+     * so the "Create/Edit Plan" form and the "/features" matrix page keep the
+     * pivot table in a consistent shape.
+     *
+     * $input is expected as [feature_id => ['included' => '1'?, 'value' => string?]].
+     */
+    private function syncComparisonFeatures(SubscriptionPlan $plan, array $input): void
+    {
+        $sync = [];
+
+        foreach (Feature::all() as $feature) {
+            $cell = $input[$feature->id] ?? [];
+
+            if ($feature->type === 'limit') {
+                $value = trim((string) ($cell['value'] ?? ''));
+
+                if ($value !== '') {
+                    $sync[$feature->id] = ['included' => true, 'value' => $value];
+                }
+            } elseif (!empty($cell['included'])) {
+                $sync[$feature->id] = ['included' => true, 'value' => null];
+            }
+        }
+
+        $plan->comparisonFeatures()->sync($sync);
     }
 
     /**
