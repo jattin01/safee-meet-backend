@@ -25,9 +25,31 @@ class SubscriptionController extends Controller
      */
     public function plans(): JsonResponse
     {
-        return response()->json(
-            SubscriptionPlan::active()->orderBy('sort_order')->get()
-        );
+        $plans = SubscriptionPlan::active()
+            ->orderBy('sort_order')
+            ->with('comparisonFeatures:id,slug,name')
+            ->get();
+
+        $plans->each(function (SubscriptionPlan $plan) {
+            // Enrich the free-text `features` list with each matching row's
+            // id/slug from the features table (matched by name), so the
+            // client can link back to the catalog instead of just showing text.
+            $catalog = $plan->comparisonFeatures->keyBy('name');
+
+            $plan->features = collect($plan->features)->map(function ($feature) use ($catalog) {
+                $match = $catalog->get($feature);
+
+                return [
+                    'id' => $match?->id,
+                    'slug' => $match?->slug,
+                    'name' => $feature,
+                ];
+            })->values();
+
+            $plan->unsetRelation('comparisonFeatures');
+        });
+
+        return response()->json($plans);
     }
 
     /**

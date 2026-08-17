@@ -89,17 +89,44 @@
 
 </div-->
 
+@php
+    // Blank checklist state: every comparison feature defaulted to
+    // unchecked/empty, keyed by feature id. Used as the base for both the
+    // "Add New Plan" form and as a fallback before a plan's own data loads
+    // into the edit modal.
+    $blankPlanFeatures = [];
+    foreach ($featureGroups->flatten() as $feature) {
+        $blankPlanFeatures[$feature->id] = ['included' => false, 'value' => ''];
+    }
+@endphp
 <div x-data="{
         activeTab: 'monthly',
         showForm: {{ $errors->any() && old('action', 'store') === 'store' ? 'true' : 'false' }},
         showEditModal: {{ $errors->any() && old('action') === 'update' ? 'true' : 'false' }},
+        features: @js(old('action', 'store') === 'store' ? old('features') : ''),
         editingPlan: {
             id: {{ old('action') === 'update' ? (int) old('id') : 'null' }},
             name: @js(old('action') === 'update' ? old('name') : ''),
             monthly_price: @js(old('action') === 'update' ? old('monthly_price') : ''),
             yearly_price: @js(old('action') === 'update' ? old('yearly_price') : ''),
             trial_days: @js(old('action') === 'update' ? old('trial_days') : ''),
-            features: @js(old('action') === 'update' ? old('features') : '')
+            features: @js(old('action') === 'update' ? old('features') : ''),
+            plan_features: @js($blankPlanFeatures)
+        },
+        // Rebuilds the 'Features (one per line)' text from whichever
+        // checkboxes/limit values are currently checked/filled inside
+        // $refs.<gridRef>, so the checklist stays the single source of truth
+        // instead of the admin typing the same thing twice.
+        syncFeaturesText(gridEl) {
+            const lines = [];
+            gridEl.querySelectorAll('[data-feature-row]').forEach((row) => {
+                const checkbox = row.querySelector('input[type=checkbox]');
+                if (!checkbox || !checkbox.checked) return;
+                const valueInput = row.querySelector('input[type=text]');
+                const value = valueInput ? valueInput.value.trim() : '';
+                lines.push(value !== '' ? `${row.dataset.featureName} (${value})` : row.dataset.featureName);
+            });
+            return lines.join('\n');
         }
     }" class="mt-[30px]">
     @if(session('success'))
@@ -161,10 +188,37 @@
                 <label class="mb-2 block text-sm text-gray-400" for="trial_days">Free trial days <span class="text-gray-600">(leave blank for no trial)</span></label>
                 <input id="trial_days" name="trial_days" type="number" min="0" step="1" value="{{ old('action', 'store') === 'store' ? old('trial_days') : '' }}" class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="100">
             </div>
+            @if($featureGroups->isNotEmpty())
+                <div class="md:col-span-2">
+                    <label class="mb-2 block text-sm text-gray-400">Comparison table features <span class="text-gray-600">(check what this plan includes — also fills the summary below)</span></label>
+                    <div x-ref="createFeaturesGrid" class="space-y-4 rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] p-4">
+                        @foreach($featureGroups as $groupName => $groupFeatures)
+                            <div>
+                                <h4 class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">{{ $groupName }}</h4>
+                                <div class="grid gap-2 sm:grid-cols-2">
+                                    @foreach($groupFeatures as $feature)
+                                        <div data-feature-row data-feature-name="{{ $feature->name }}" class="flex items-center gap-2">
+                                            <label class="flex items-center gap-2 text-sm text-gray-300">
+                                                <input type="checkbox" name="plan_features[{{ $feature->id }}][included]" value="1" @change="features = syncFeaturesText($refs.createFeaturesGrid)" class="rounded border-[#2a2d3e] bg-[#0d0d0d] text-[#DC131C] focus:ring-[#DC131C]">
+                                                {{ $feature->name }}
+                                            </label>
+                                            @if($feature->type === 'limit')
+                                                <input type="text" name="plan_features[{{ $feature->id }}][value]" @input="features = syncFeaturesText($refs.createFeaturesGrid)" placeholder="e.g. 3 or Unlimited" class="w-28 rounded-lg border border-[#2a2d3e] bg-[#0d0d0d] px-2 py-1 text-xs text-white outline-none focus:border-[#DC131C]">
+                                            @endif
+                                        </div>
+                                    @endforeach
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
+
             <div class="md:col-span-2">
-                <label class="mb-2 block text-sm text-gray-400" for="features">Features (one per line) <span class="text-gray-600">(at least one required)</span></label>
-                <textarea id="features" name="features" rows="4" required class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="Unlimited projects&#10;Priority support">{{ old('action', 'store') === 'store' ? old('features') : '' }}</textarea>
+                <label class="mb-2 block text-sm text-gray-400" for="features">Features summary (one per line) <span class="text-gray-600">(auto-filled from the checklist above — edit if needed)</span></label>
+                <textarea id="features" name="features" rows="4" required x-model="features" class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="Unlimited projects&#10;Priority support"></textarea>
             </div>
+
             <div class="md:col-span-2 flex justify-end">
                 <button type="submit" class="rounded-lg bg-[#DC131C] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#b50f16]">
                     Add Plan
@@ -181,7 +235,7 @@
                     <i class="fa-solid {{ $plan['icon'] }}"></i>
                 </span>
                 <button type="button"
-                    @click="showEditModal = true; editingPlan = { id: {{ $plan['id'] }}, name: @js($plan['name']), monthly_price: {{ (float) $plan['monthly_price'] }}, yearly_price: {{ (float) $plan['yearly_price'] }}, trial_days: {{ $plan['trial_days'] ?? "''" }}, features: @js(implode(chr(10), $plan['features'])) }"
+                    @click="showEditModal = true; editingPlan = { id: {{ $plan['id'] }}, name: @js($plan['name']), monthly_price: {{ (float) $plan['monthly_price'] }}, yearly_price: {{ (float) $plan['yearly_price'] }}, trial_days: {{ $plan['trial_days'] ?? "''" }}, features: @js(implode(chr(10), $plan['features'])), plan_features: @js(array_replace($blankPlanFeatures, $planFeatureMatrix[$plan['id']] ?? [])) }"
                     class="absolute top-2 right-12 rounded-lg border border-blue-400 w-[30px] h-[30px] p-[0px] text-[12px] font-semibold text-blue-400 transition hover:bg-blue-400 hover:text-white">
                     <i class="fa-regular fa-pen-to-square"></i>
                 </button>
@@ -218,7 +272,7 @@
                     <i class="fa-solid {{ $plan['icon'] }}"></i>
                 </span>
                 <button type="button"
-                    @click="showEditModal = true; editingPlan = { id: {{ $plan['id'] }}, name: @js($plan['name']), monthly_price: {{ (float) $plan['monthly_price'] }}, yearly_price: {{ (float) $plan['yearly_price'] }}, trial_days: {{ $plan['trial_days'] ?? "''" }}, features: @js(implode(chr(10), $plan['features'])) }"
+                    @click="showEditModal = true; editingPlan = { id: {{ $plan['id'] }}, name: @js($plan['name']), monthly_price: {{ (float) $plan['monthly_price'] }}, yearly_price: {{ (float) $plan['yearly_price'] }}, trial_days: {{ $plan['trial_days'] ?? "''" }}, features: @js(implode(chr(10), $plan['features'])), plan_features: @js(array_replace($blankPlanFeatures, $planFeatureMatrix[$plan['id']] ?? [])) }"
                     class="absolute top-2 right-12 rounded-lg border border-blue-400 w-[30px] h-[30px] p-[0px] text-[12px] font-semibold text-blue-400 transition hover:bg-blue-400 hover:text-white">
                     <i class="fa-regular fa-pen-to-square"></i>
                 </button>
@@ -262,7 +316,7 @@
 
     {{-- Edit Plan Modal --}}
     <div x-show="showEditModal" x-cloak @click.self="showEditModal = false" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-        <div class="w-full max-w-lg rounded-2xl border border-[#212529] bg-[#000] p-5">
+        <div class="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-[#212529] bg-[#000] p-5">
             <div class="mb-4 flex items-center justify-between">
                 <h3 class="text-lg font-semibold text-white">Edit subscription plan</h3>
                 <button type="button" @click="showEditModal = false" class="text-gray-400 hover:text-white">
@@ -298,10 +352,37 @@
                     <label class="mb-2 block text-sm text-gray-400" for="edit_trial_days">Free trial days <span class="text-gray-600">(leave blank for no trial)</span></label>
                     <input id="edit_trial_days" name="trial_days" type="number" min="0" step="1" x-model="editingPlan.trial_days" class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="100">
                 </div>
+                @if($featureGroups->isNotEmpty())
+                    <div class="md:col-span-2">
+                        <label class="mb-2 block text-sm text-gray-400">Comparison table features <span class="text-gray-600">(check what this plan includes — also fills the summary below)</span></label>
+                        <div x-ref="editFeaturesGrid" class="space-y-4 rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] p-4">
+                            @foreach($featureGroups as $groupName => $groupFeatures)
+                                <div>
+                                    <h4 class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">{{ $groupName }}</h4>
+                                    <div class="grid gap-2 sm:grid-cols-2">
+                                        @foreach($groupFeatures as $feature)
+                                            <div data-feature-row data-feature-name="{{ $feature->name }}" class="flex items-center gap-2">
+                                                <label class="flex items-center gap-2 text-sm text-gray-300">
+                                                    <input type="checkbox" name="plan_features[{{ $feature->id }}][included]" value="1" x-model="editingPlan.plan_features['{{ $feature->id }}'].included" @change="editingPlan.features = syncFeaturesText($refs.editFeaturesGrid)" class="rounded border-[#2a2d3e] bg-[#0d0d0d] text-[#DC131C] focus:ring-[#DC131C]">
+                                                    {{ $feature->name }}
+                                                </label>
+                                                @if($feature->type === 'limit')
+                                                    <input type="text" name="plan_features[{{ $feature->id }}][value]" x-model="editingPlan.plan_features['{{ $feature->id }}'].value" @input="editingPlan.features = syncFeaturesText($refs.editFeaturesGrid)" placeholder="e.g. 3 or Unlimited" class="w-28 rounded-lg border border-[#2a2d3e] bg-[#0d0d0d] px-2 py-1 text-xs text-white outline-none focus:border-[#DC131C]">
+                                                @endif
+                                            </div>
+                                        @endforeach
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+
                 <div class="md:col-span-2">
-                    <label class="mb-2 block text-sm text-gray-400" for="edit_features">Features (one per line) <span class="text-gray-600">(at least one required)</span></label>
+                    <label class="mb-2 block text-sm text-gray-400" for="edit_features">Features summary (one per line) <span class="text-gray-600">(auto-filled from the checklist above — edit if needed)</span></label>
                     <textarea id="edit_features" name="features" rows="4" x-model="editingPlan.features" required class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]"></textarea>
                 </div>
+
                 <div class="md:col-span-2 flex justify-end gap-3">
                     <button type="button" @click="showEditModal = false" class="rounded-lg border border-[#2a2d3e] px-4 py-2 text-sm font-semibold text-gray-300 transition hover:bg-[#2a2d3e]">
                         Cancel
