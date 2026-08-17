@@ -380,94 +380,188 @@ class AuthController extends Controller
 
     // ── POST /api/v1/auth/phone-otp/send ─────────────────────────────────────
     
-    public function sendPhoneOtp(Request $request): JsonResponse
+  public function sendPhoneOtp(Request $request): JsonResponse
     {
         $request->validate([
-            'phone' => ['required', 'string', 'regex:/^\+?[1-9]\d{7,14}$/'],
-            'name'  => ['nullable', 'string', 'max:150'],
+            'phone' => [
+                'required',
+                'string',
+                'regex:/^\+?[1-9]\d{7,14}$/'
+            ],
+            'name' => [
+                'nullable',
+                'string',
+                'max:150'
+            ],
         ]);
 
         $phone = $this->normalizePhone($request->input('phone'));
         $name = $request->input('name');
-        
-        // Use static OTP for testing phone number
-        $isTestPhone = in_array($phone, ['+919812374311', '9812374311']);
-        $otp = $isTestPhone ? '123456' : str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-        
+
+        /*
+        |--------------------------------------------------------------------------
+        | Static OTP Test Numbers
+        |--------------------------------------------------------------------------
+        |
+        | India:
+        | +919812374311
+        |
+        | International:
+        | +(732)207-5598
+        | +17322075598
+        |
+        */
+
+        $isTestPhone = in_array($phone, [
+            '+919812374311',
+            '9812374311',
+            '+17322075598',
+            '17322075598',
+        ], true);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Generate OTP
+        |--------------------------------------------------------------------------
+        */
+
+        $otp = $isTestPhone
+            ? '123456'
+            : str_pad(
+                random_int(0, 999999),
+                6,
+                '0',
+                STR_PAD_LEFT
+            );
+
         $cacheKey = 'phone_otp_' . hash('sha256', $phone);
 
-        // Store OTP in cache for 10 minutes
-        Cache::put($cacheKey, [
-            'otp' => $otp,
-            'name' => $name,
-            'phone' => $phone,
-            'attempts' => 0,
-        ], now()->addMinutes(10));
+        /*
+        |--------------------------------------------------------------------------
+        | Store OTP in Cache
+        |--------------------------------------------------------------------------
+        */
 
-        // Send OTP via MSG91 (skip for test phone)
+        Cache::put(
+            $cacheKey,
+            [
+                'otp' => $otp,
+                'name' => $name,
+                'phone' => $phone,
+                'attempts' => 0,
+            ],
+            now()->addMinutes(10)
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Send OTP via MSG91
+        |--------------------------------------------------------------------------
+        |
+        | Test numbers:
+        | SMS will NOT be sent.
+        |
+        | Other numbers:
+        | SMS will be sent through MSG91.
+        |
+        */
+
         $smsSent = false;
         $smsError = null;
 
         if (!$isTestPhone) {
+
             try {
+
                 $phoneNumber = ltrim($phone, '+');
 
                 $response = \Illuminate\Support\Facades\Http::timeout(15)->get(
                     'https://control.msg91.com/api/v5/otp',
                     [
-                        'otp'         => $otp,
-                        'mobile'      => $phoneNumber,
-                        'authkey'     => config('services.msg91.auth_key'),
-                        'otp_length'  => config('services.msg91.otp_length', 6),
+                        'otp' => $otp,
+                        'mobile' => $phoneNumber,
+                        'authkey' => config('services.msg91.auth_key'),
+                        'otp_length' => config('services.msg91.otp_length', 6),
                         'template_id' => config('services.msg91.template_id'),
                     ]
                 );
 
                 if ($response->successful()) {
+
                     $smsSent = true;
+
                     Log::info('Phone OTP sent via MSG91', [
                         'phone' => $phone,
                         'response' => $response->json(),
                     ]);
+
                 } else {
+
                     $smsError = $response->body();
+
                     Log::error('Failed to send phone OTP via MSG91', [
                         'phone' => $phone,
                         'status' => $response->status(),
                         'error' => $smsError,
                     ]);
                 }
+
             } catch (Throwable $e) {
+
                 $smsError = $e->getMessage();
+
                 Log::error('Exception sending phone OTP via MSG91', [
                     'phone' => $phone,
                     'error' => $e->getMessage(),
                 ]);
             }
+
         } else {
-            // Test phone - skip SMS sending
+
+            // Test phone - skip SMS
             $smsSent = true;
-            Log::info('Test phone - using static OTP 123456', ['phone' => $phone]);
+
+            Log::info('Test phone - using static OTP 123456', [
+                'phone' => $phone,
+            ]);
         }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Response Data
+        |--------------------------------------------------------------------------
+        */
 
         $data = [
             'phone' => $phone,
             'expires_in' => 600,
         ];
 
-        // For development: expose OTP if configured
+        // Only expose OTP in local environment
         if (app()->environment('local')) {
             $data['dev_otp'] = $otp;
         }
 
-        // If SMS failed and not in dev mode, return error
+        /*
+        |--------------------------------------------------------------------------
+        | SMS Failed
+        |--------------------------------------------------------------------------
+        */
+
         if (!$smsSent && !app()->environment('local')) {
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to send OTP. Please try again.',
                 'error' => 'SMS delivery failed',
             ], 500);
         }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Success Response
+        |--------------------------------------------------------------------------
+        */
 
         return response()->json([
             'success' => true,

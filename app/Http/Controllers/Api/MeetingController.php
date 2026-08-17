@@ -98,6 +98,84 @@ class MeetingController extends Controller
         ]);
     }
 
+    // public function store(Request $request): JsonResponse
+    // {
+    //     $validated = $request->validate([
+    //         'guest_user_id' => ['required', 'string', 'exists:users,id'],
+    //         'meeting_date' => ['required', 'date', 'after_or_equal:today'],
+    //         'meeting_time' => ['required', 'date_format:H:i'],
+    //         'location' => ['required', 'string', 'max:255'],
+    //         'latitude' => ['nullable', 'numeric'],
+    //         'longitude' => ['nullable', 'numeric'],
+    //         'purpose' => ['nullable', 'string', 'max:255'],
+    //         'item_or_service' => ['nullable', 'string', 'max:255'],
+    //         'type' => ['sometimes', Rule::in([
+    //             'coffee', 'marketplace', 'property', 'business', 'freelance', 'social', 'dating', 'other',
+    //         ])],
+    //     ]);
+
+    //     // The host is whoever is authenticated — never trust a client-supplied id here.
+    //     $hostId = $request->user()->id;
+
+    //     if ($validated['guest_user_id'] === $hostId) {
+    //         throw ValidationException::withMessages([
+    //             'guest_user_id' => 'You cannot create a meeting with yourself.',
+    //         ]);
+    //     }
+
+    //     $startAt = \Illuminate\Support\Carbon::parse($validated['meeting_date'].' '.$validated['meeting_time']);
+
+    //     if ($startAt->isPast()) {
+    //         throw ValidationException::withMessages([
+    //             'meeting_time' => 'You cannot create a meeting in the past.',
+    //         ]);
+    //     }
+
+    //     $meeting = Meeting::create([
+    //         'host_user_id' => $hostId,
+    //         'guest_user_id' => $validated['guest_user_id'],
+    //         // "title"/"scheduled_start_at" predate this API and are still
+    //         // required by the table — derive them from the new fields.
+    //         'title' => $validated['purpose'] ?? 'Meeting',
+    //         'scheduled_start_at' => $startAt,
+    //         'meeting_date' => $validated['meeting_date'],
+    //         'meeting_time' => $validated['meeting_time'],
+    //         'location' => $validated['location'],
+    //         'planned_address' => $validated['location'],
+    //         'latitude' => $validated['latitude'] ?? null,
+    //         'longitude' => $validated['longitude'] ?? null,
+    //         'planned_latitude' => $validated['latitude'] ?? null,
+    //         'planned_longitude' => $validated['longitude'] ?? null,
+    //         'purpose' => $validated['purpose'] ?? null,
+    //         'item_or_service' => $validated['item_or_service'] ?? null,
+    //         'type' => $validated['type'] ?? 'other',
+    //         'status' => 'pending_approval',
+    //         'trust_score_snapshot' => $request->user()->trust_score,
+    //     ]);
+
+    //     $meeting->load(['host', 'guest']);
+    //     $when = $this->formatWhen($meeting);
+
+    //     $this->push->sendToUser(
+    //         $meeting->guest,
+    //         'New meeting request',
+    //         "{$meeting->host->display_name} wants to meet — {$meeting->location}, {$when}",
+    //         ['type' => 'meeting_request', 'meeting_id' => (string) $meeting->id],
+    //     );
+    //     $this->push->sendToUser(
+    //         $meeting->host,
+    //         'Request sent',
+    //         "Waiting for {$meeting->guest->display_name} to respond",
+    //         ['type' => 'meeting_confirmed', 'meeting_id' => (string) $meeting->id],
+    //     );
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'message' => 'Meeting created successfully.',
+    //         'data' => ['meeting_id' => $meeting->id],
+    //     ], 201);
+    // }
+
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -128,6 +206,29 @@ class MeetingController extends Controller
         if ($startAt->isPast()) {
             throw ValidationException::withMessages([
                 'meeting_time' => 'You cannot create a meeting in the past.',
+            ]);
+        }
+
+        $endAt = (clone $startAt)->addMinutes(15);
+
+        $conflictExists = Meeting::whereIn('status', [
+                'pending_approval',
+                'approved',
+                'scheduled',
+            ])
+            ->where(function ($query) use ($hostId, $validated) {
+                $query->where('host_user_id', $hostId)
+                    ->orWhere('guest_user_id', $hostId)
+                    ->orWhere('host_user_id', $validated['guest_user_id'])
+                    ->orWhere('guest_user_id', $validated['guest_user_id']);
+            })
+            ->where('scheduled_start_at', '<', $endAt)
+            ->whereRaw('DATE_ADD(scheduled_start_at, INTERVAL 15 MINUTE) > ?', [$startAt])
+            ->exists();
+
+        if ($conflictExists) {
+            throw ValidationException::withMessages([
+                'meeting_time' => 'One of the participants already has a meeting in this 15-minute slot.',
             ]);
         }
 

