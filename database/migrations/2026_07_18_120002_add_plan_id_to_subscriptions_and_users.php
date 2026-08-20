@@ -51,7 +51,7 @@ return new class extends Migration
 
     private function addPlanColumn(string $table, string $after): void
     {
-        if (!Schema::hasColumn($table, 'plan_id')) {
+        if (! Schema::hasColumn($table, 'plan_id')) {
             Schema::table($table, function (Blueprint $t) use ($after) {
                 $t->unsignedBigInteger('plan_id')->nullable()->after($after);
             });
@@ -60,7 +60,7 @@ return new class extends Migration
 
     private function addPlanForeignKey(string $table): void
     {
-        if (!$this->hasPlanForeignKey($table)) {
+        if (! $this->hasPlanForeignKey($table)) {
             Schema::table($table, function (Blueprint $t) {
                 $t->foreign('plan_id')->references('id')->on('subscription_plans')->nullOnDelete();
             });
@@ -69,6 +69,13 @@ return new class extends Migration
 
     private function hasPlanForeignKey(string $table): bool
     {
+        if (DB::getDriverName() !== 'mysql') {
+            return collect(Schema::getForeignKeys($table))->contains(
+                fn (array $foreign): bool => in_array('plan_id', $foreign['columns'], true)
+                    && $foreign['foreign_table'] === 'subscription_plans'
+            );
+        }
+
         return DB::selectOne('
             SELECT CONSTRAINT_NAME AS name
             FROM information_schema.KEY_COLUMN_USAGE
@@ -82,7 +89,7 @@ return new class extends Migration
 
     private function backfill(string $table, string $legacyColumn, array $validPlanIds): void
     {
-        if (!Schema::hasColumn($table, $legacyColumn) || !Schema::hasColumn($table, 'plan_id')) {
+        if (! Schema::hasColumn($table, $legacyColumn) || ! Schema::hasColumn($table, 'plan_id')) {
             return;
         }
 

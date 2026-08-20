@@ -136,7 +136,7 @@ class UserController extends Controller
 
         public function show($id)
         {
-            $user = User::with('emergencyContacts')->findOrFail($id);
+            $user = User::with(['emergencyContacts', 'verificationLevel'])->findOrFail($id);
 
             $meetingsQuery = Meeting::where('host_user_id', $user->id)
                 ->orWhere('guest_user_id', $user->id);

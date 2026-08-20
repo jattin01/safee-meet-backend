@@ -25,6 +25,7 @@ class UserResource extends JsonResource
             'kycStatus'          => $this->kyc_status,
             'verificationLevel'  => $verification?->verification_level ?? 0,
             'verificationStatus' => $verification?->status ?? 'not_submitted',
+            'badgeIcon'          => $this->badge_icon_url,
             'trustScore'         => $this->trust_score,
             'safetyScore'        => $this->safety_score,
             'trustTier'          => VerificationLevelResolver::fromUser($this->kyc_status, $this->trust_tier),

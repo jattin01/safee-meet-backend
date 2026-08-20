@@ -4,10 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\UserVerification;
+use App\Services\SafetyPointService;
 use App\Support\Verification\TrustScoreCalculator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use App\Services\SafetyPointService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -27,13 +27,12 @@ class DiditVerificationController extends Controller
         $response = Http::withHeaders([
             'X-Api-Key' => config('services.didit.api_key'),
             'Content-Type' => 'application/json',
-        ])->post(rtrim(config('services.didit.base_url'), '/') . '/v3/session/', [
+        ])->post(rtrim(config('services.didit.base_url'), '/').'/v3/session/', [
             'workflow_id' => config('services.didit.workflow_id'),
             'callback' => $callback,
             'vendor_data' => (string) $user->id,
         ]);
 
-        
         if ($response->failed()) {
             Log::error('Didit session creation failed', [
                 'user_id' => $user->id,
@@ -83,7 +82,7 @@ class DiditVerificationController extends Controller
     {
         $verification = UserVerification::where('user_id', $request->user()->id)->first();
 
-        if (!$verification || !$verification->didit_session_id) {
+        if (! $verification || ! $verification->didit_session_id) {
             return response()->json(['status' => 'not_started']);
         }
 
@@ -108,7 +107,7 @@ class DiditVerificationController extends Controller
         $signatureHeader = $request->header('X-Signature-V2') ?: $request->header('X-Signature');
         $timestampHeader = $request->header('X-Timestamp');
 
-        if ($timestampHeader && abs(now()->timestamp - (int) $timestampHeader) > 300) {
+        if (! $secret || ! $timestampHeader || abs(now()->timestamp - (int) $timestampHeader) > 300) {
             Log::warning('Didit webhook timestamp too old', [
                 'timestamp' => $timestampHeader,
             ]);
@@ -122,22 +121,22 @@ class DiditVerificationController extends Controller
             $expected = hash_hmac('sha256', $rawBody, $secret);
         }
 
-        // if (!$signatureHeader || !hash_equals($expected, $signatureHeader)) {
-        //     Log::warning('Didit webhook signature mismatch');
+        if (! $signatureHeader || ! hash_equals($expected, $signatureHeader)) {
+            Log::warning('Didit webhook signature mismatch');
 
-        //     return response()->json(['message' => 'Invalid signature'], 401);
-        // }
+            return response()->json(['message' => 'Invalid signature'], 401);
+        }
 
         $payload = json_decode($rawBody, true, 512, JSON_THROW_ON_ERROR);
         $sessionId = $payload['session_id'] ?? null;
 
-        if (!$sessionId) {
+        if (! $sessionId) {
             return response()->json(['message' => 'Missing session_id'], 422);
         }
 
         $verification = UserVerification::where('didit_session_id', $sessionId)->first();
 
-        if (!$verification) {
+        if (! $verification) {
             Log::warning('Didit webhook for unknown session', ['session_id' => $sessionId]);
 
             return response()->json(['message' => 'Unknown session'], 404);
@@ -175,7 +174,7 @@ class DiditVerificationController extends Controller
 
         $verification->save();
 
-        if ($diditStatus === 'Approved' && !$wasAlreadyApproved) {
+        if ($diditStatus === 'Approved' && ! $wasAlreadyApproved) {
             app(SafetyPointService::class)->addPoints(
                 userId: $verification->user_id,
                 eventKey: 'kyc_approved',
@@ -185,7 +184,7 @@ class DiditVerificationController extends Controller
             );
         }
 
-         if ($diditStatus === 'Declined') {
+        if ($diditStatus === 'Declined') {
             app(SafetyPointService::class)->addPoints(
                 userId: $verification->user_id,
                 eventKey: 'kyc_declined',
@@ -225,7 +224,9 @@ class DiditVerificationController extends Controller
 
     protected function canonicalizePayload(string $rawBody): string
     {
-        $payload = json_decode($rawBody, true, 512, JSON_THROW_ON_ERROR);
+        // Decode as objects so empty JSON maps remain `{}` instead of being
+        // collapsed into `[]`, which would produce a different V3 signature.
+        $payload = json_decode($rawBody, false, 512, JSON_THROW_ON_ERROR);
         $payload = $this->sortKeysRecursively($payload);
 
         return json_encode(
@@ -234,12 +235,22 @@ class DiditVerificationController extends Controller
         );
     }
 
-    protected function sortKeysRecursively(array $value): array
+    protected function sortKeysRecursively(mixed $value): mixed
     {
-        ksort($value);
+        if ($value instanceof \stdClass) {
+            $properties = get_object_vars($value);
+            ksort($properties, SORT_STRING);
 
-        foreach ($value as $key => $item) {
-            if (is_array($item)) {
+            $sorted = new \stdClass;
+            foreach ($properties as $key => $item) {
+                $sorted->{$key} = $this->sortKeysRecursively($item);
+            }
+
+            return $sorted;
+        }
+
+        if (is_array($value)) {
+            foreach ($value as $key => $item) {
                 $value[$key] = $this->sortKeysRecursively($item);
             }
         }

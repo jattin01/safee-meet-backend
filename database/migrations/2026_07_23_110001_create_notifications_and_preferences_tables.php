@@ -66,6 +66,12 @@ return new class extends Migration
 
     private function usersIdType(): string
     {
+        if (DB::getDriverName() !== 'mysql') {
+            return Schema::getColumnType('users', 'id') === 'string'
+                ? 'char(26)'
+                : 'bigint unsigned';
+        }
+
         $result = DB::selectOne("
             SELECT COLUMN_TYPE AS type
             FROM information_schema.COLUMNS
@@ -87,6 +93,14 @@ return new class extends Migration
 
     private function addUserForeignKey(string $tableName): void
     {
+        if (DB::getDriverName() !== 'mysql') {
+            Schema::table($tableName, function (Blueprint $table): void {
+                $table->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();
+            });
+
+            return;
+        }
+
         DB::statement("ALTER TABLE `{$tableName}`
             ADD CONSTRAINT `{$tableName}_user_id_foreign`
             FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE");

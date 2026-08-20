@@ -11,6 +11,7 @@ use App\Http\Resources\Auth\UserResource;
 use App\Models\User;
 use App\Services\Auth\AuthService;
 use App\Services\SafetyPointService;
+use App\Services\Sms\TelesignSmsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -56,7 +57,7 @@ use Throwable;
  * }
  * 
  * ═══════════════════════════════════════════════════════════════════════════════
- * FLOW 2: PHONE AUTHENTICATION (3-Step Process with MSG91 OTP)
+ * FLOW 2: PHONE AUTHENTICATION (3-Step Process with Telesign OTP)
  * ═══════════════════════════════════════════════════════════════════════════════
  * 
  * Step 1: Send OTP
@@ -455,66 +456,20 @@ class AuthController extends Controller
 
         /*
         |--------------------------------------------------------------------------
-        | Send OTP via MSG91
+        | Send OTP via Telesign
         |--------------------------------------------------------------------------
         |
         | Test numbers:
         | SMS will NOT be sent.
         |
         | Other numbers:
-        | SMS will be sent through MSG91.
+        | SMS will be sent through Telesign.
         |
         */
 
-        $smsSent = false;
-        $smsError = null;
-
         if (!$isTestPhone) {
 
-            try {
-
-                $phoneNumber = ltrim($phone, '+');
-
-                $response = \Illuminate\Support\Facades\Http::timeout(15)->get(
-                    'https://control.msg91.com/api/v5/otp',
-                    [
-                        'otp' => $otp,
-                        'mobile' => $phoneNumber,
-                        'authkey' => config('services.msg91.auth_key'),
-                        'otp_length' => config('services.msg91.otp_length', 6),
-                        'template_id' => config('services.msg91.template_id'),
-                    ]
-                );
-
-                if ($response->successful()) {
-
-                    $smsSent = true;
-
-                    Log::info('Phone OTP sent via MSG91', [
-                        'phone' => $phone,
-                        'response' => $response->json(),
-                    ]);
-
-                } else {
-
-                    $smsError = $response->body();
-
-                    Log::error('Failed to send phone OTP via MSG91', [
-                        'phone' => $phone,
-                        'status' => $response->status(),
-                        'error' => $smsError,
-                    ]);
-                }
-
-            } catch (Throwable $e) {
-
-                $smsError = $e->getMessage();
-
-                Log::error('Exception sending phone OTP via MSG91', [
-                    'phone' => $phone,
-                    'error' => $e->getMessage(),
-                ]);
-            }
+            $smsSent = app(TelesignSmsService::class)->sendOtp($phone, $otp);
 
         } else {
 

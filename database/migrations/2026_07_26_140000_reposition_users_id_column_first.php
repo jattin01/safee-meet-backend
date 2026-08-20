@@ -14,6 +14,10 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (DB::getDriverName() !== 'mysql') {
+            return;
+        }
+
         $position = DB::selectOne("
             SELECT ORDINAL_POSITION AS pos
             FROM information_schema.COLUMNS

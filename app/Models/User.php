@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\SubscriptionService;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -10,9 +11,6 @@ use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\HasApiTokens;
-use App\Models\EmergencyContact;
-use App\Models\UserSafetyPointHistory;
-
 
 class User extends Authenticatable
 {
@@ -24,11 +22,9 @@ class User extends Authenticatable
     // Meeting::usesUlidKey()/EmergencyContact::usesUlidKey() — so this model
     // works correctly before, during, and after that migration.
 
-
-
     public function getIncrementing()
     {
-        return !static::usesUlidKey();
+        return ! static::usesUlidKey();
     }
 
     public function getKeyType()
@@ -58,7 +54,7 @@ class User extends Authenticatable
         // Every new user starts on the 100-day free trial (single choke point
         // for all registration paths). See SubscriptionService::startFreeTrial.
         static::created(function (User $user): void {
-            app(\App\Services\SubscriptionService::class)->startFreeTrial($user);
+            app(SubscriptionService::class)->startFreeTrial($user);
         });
     }
 
@@ -125,6 +121,7 @@ class User extends Authenticatable
         'safee_id',
         'safee_pin',
         'safety_score',
+        'badge_icon_url',
     ];
 
     protected function casts(): array
@@ -185,6 +182,16 @@ class User extends Authenticatable
         return $this->hasOne(UserVerification::class)->latestOfMany();
     }
 
+    public function backgroundChecks()
+    {
+        return $this->hasMany(BackgroundCheck::class);
+    }
+
+    public function consents()
+    {
+        return $this->hasMany(UserConsent::class);
+    }
+
     public function trustScoreSnapshots()
     {
         return $this->hasMany(TrustScoreSnapshot::class);
@@ -193,6 +200,17 @@ class User extends Authenticatable
     public function badges()
     {
         return $this->hasMany(UserBadge::class);
+    }
+
+    /**
+     * The catalog row (name + badge_icon) matching this user's current
+     * `verification_level` string. Set alongside that string wherever it's
+     * written (see VerificationController::approve()) — kept as an FK so the
+     * icon comes straight from the catalog instead of another hardcoded map.
+     */
+    public function verificationLevel()
+    {
+        return $this->belongsTo(VerificationLevel::class);
     }
 
     public function riskFlags()
@@ -421,6 +439,17 @@ class User extends Authenticatable
             'verified_professional' => 'Verified Professional',
             default => 'Unverified',
         };
+    }
+
+    /**
+     * Root-relative URL for the catalog badge icon matching this user's
+     * current verification level, or null if none is set/uploaded.
+     */
+    public function getBadgeIconUrlAttribute(): ?string
+    {
+        $icon = $this->verificationLevel?->badge_icon;
+
+        return $icon ? '/storage/'.$icon : null;
     }
 
     public function getVerificationLevelLabelAttribute(): string
