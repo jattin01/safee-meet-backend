@@ -46,7 +46,7 @@ class SubscriptionController extends Controller
                     'type' => $match?->type,
                     // plan_features table se value
                     'value' => $match?->pivot?->value,
-                ];
+                ]; 
             })->values();
 
             $plan->unsetRelation('comparisonFeatures');
