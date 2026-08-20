@@ -27,7 +27,7 @@ class SubscriptionController extends Controller
     {
         $plans = SubscriptionPlan::active()
             ->orderBy('sort_order')
-            ->with('comparisonFeatures:id,slug,name')
+            ->with('comparisonFeatures:id,slug,name,type')
             ->get();
 
         $plans->each(function (SubscriptionPlan $plan) {
@@ -43,7 +43,10 @@ class SubscriptionController extends Controller
                     'id' => $match?->id,
                     'slug' => $match?->slug,
                     'name' => $feature,
-                ];
+                    'type' => $match?->type,
+                    // plan_features table se value
+                    'value' => $match?->pivot?->value,
+                ]; 
             })->values();
 
             $plan->unsetRelation('comparisonFeatures');
