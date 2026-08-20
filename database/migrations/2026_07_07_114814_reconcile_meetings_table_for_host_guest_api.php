@@ -17,49 +17,49 @@ return new class extends Migration
      */
     public function up(): void
     {
-        if (Schema::hasColumn('meetings', 'creator_user_id') && !Schema::hasColumn('meetings', 'host_user_id')) {
+        if (Schema::hasColumn('meetings', 'creator_user_id') && ! Schema::hasColumn('meetings', 'host_user_id')) {
             DB::statement('ALTER TABLE meetings CHANGE creator_user_id host_user_id CHAR(26) NOT NULL');
         }
 
-        if (Schema::hasColumn('meetings', 'meeting_type') && !Schema::hasColumn('meetings', 'type')) {
+        if (Schema::hasColumn('meetings', 'meeting_type') && ! Schema::hasColumn('meetings', 'type')) {
             DB::statement("ALTER TABLE meetings CHANGE meeting_type type ENUM('personal','business','employer','other') NOT NULL DEFAULT 'personal'");
         }
 
         $addedGuestUserId = false;
 
         Schema::table('meetings', function (Blueprint $table) use (&$addedGuestUserId) {
-            if (!Schema::hasColumn('meetings', 'guest_user_id')) {
+            if (! Schema::hasColumn('meetings', 'guest_user_id')) {
                 $table->char('guest_user_id', 26)->nullable()->after('host_user_id');
                 $addedGuestUserId = true;
             }
-            if (!Schema::hasColumn('meetings', 'reference')) {
+            if (! Schema::hasColumn('meetings', 'reference')) {
                 $table->string('reference')->nullable()->unique();
             }
-            if (!Schema::hasColumn('meetings', 'meeting_date')) {
+            if (! Schema::hasColumn('meetings', 'meeting_date')) {
                 $table->date('meeting_date')->nullable();
             }
-            if (!Schema::hasColumn('meetings', 'meeting_time')) {
+            if (! Schema::hasColumn('meetings', 'meeting_time')) {
                 $table->time('meeting_time')->nullable();
             }
-            if (!Schema::hasColumn('meetings', 'location')) {
+            if (! Schema::hasColumn('meetings', 'location')) {
                 $table->string('location')->nullable();
             }
-            if (!Schema::hasColumn('meetings', 'latitude')) {
+            if (! Schema::hasColumn('meetings', 'latitude')) {
                 $table->decimal('latitude', 10, 7)->nullable();
             }
-            if (!Schema::hasColumn('meetings', 'longitude')) {
+            if (! Schema::hasColumn('meetings', 'longitude')) {
                 $table->decimal('longitude', 10, 7)->nullable();
             }
-            if (!Schema::hasColumn('meetings', 'purpose')) {
+            if (! Schema::hasColumn('meetings', 'purpose')) {
                 $table->string('purpose')->nullable();
             }
-            if (!Schema::hasColumn('meetings', 'item_or_service')) {
+            if (! Schema::hasColumn('meetings', 'item_or_service')) {
                 $table->string('item_or_service')->nullable();
             }
-            if (!Schema::hasColumn('meetings', 'trust_score_snapshot')) {
+            if (! Schema::hasColumn('meetings', 'trust_score_snapshot')) {
                 $table->float('trust_score_snapshot')->nullable();
             }
-            if (!Schema::hasColumn('meetings', 'arrived_at')) {
+            if (! Schema::hasColumn('meetings', 'arrived_at')) {
                 $table->timestamp('arrived_at')->nullable();
             }
         });
@@ -72,10 +72,12 @@ return new class extends Migration
 
         // Widen the enums to also accept the values this API's flow uses,
         // without dropping the values existing (SOS-linked) rows may hold.
-        if (Schema::hasColumn('meetings', 'type')) {
-            DB::statement("ALTER TABLE meetings MODIFY type ENUM('personal','business','employer','other','coffee','marketplace','property','freelance','social','dating') NOT NULL DEFAULT 'personal'");
+        if (DB::getDriverName() === 'mysql') {
+            if (Schema::hasColumn('meetings', 'type')) {
+                DB::statement("ALTER TABLE meetings MODIFY type ENUM('personal','business','employer','other','coffee','marketplace','property','freelance','social','dating') NOT NULL DEFAULT 'personal'");
+            }
+            DB::statement("ALTER TABLE meetings MODIFY status ENUM('draft','scheduled','active','completed','cancelled','expired','emergency','live','incident_reported') NOT NULL DEFAULT 'scheduled'");
         }
-        DB::statement("ALTER TABLE meetings MODIFY status ENUM('draft','scheduled','active','completed','cancelled','expired','emergency','live','incident_reported') NOT NULL DEFAULT 'scheduled'");
     }
 
     public function down(): void

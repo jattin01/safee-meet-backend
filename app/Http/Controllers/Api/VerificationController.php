@@ -301,6 +301,7 @@ class VerificationController extends Controller
                 in_array($user->verification_level, ['level2', 'professional']) ? 'level2_verified' : null,
                 $user->verification_level === 'professional' ? 'verified_professional' : null,
             ]),
+            'badge_icon' => $user->badge_icon_url,
             'requests' => $user->verificationRequests()->latest()->get(),
         ]);
     }

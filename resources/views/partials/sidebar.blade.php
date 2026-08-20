@@ -39,7 +39,7 @@
 
     <a href="{{ url('/verification') }}"
        class="mb-1 flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition
-       {{ request()->is('verification*') ? 'bg-[#DC131C] text-white' : 'text-[#8f98ad] hover:bg-[#1b2230] hover:text-white' }}">
+       {{ request()->is('verification') || request()->is('verification/*') ? 'bg-[#DC131C] text-white' : 'text-[#8f98ad] hover:bg-[#1b2230] hover:text-white' }}">
       <i class="fa-solid fa-user-check w-4 text-center"></i>
       <span>Verification</span>
       <span class="ml-auto rounded bg-[#0ab39c]/15 px-2 py-0.5 text-[11px] font-bold text-[#0ab39c]">234</span>
@@ -57,6 +57,13 @@
        {{ request()->is('features*') ? 'bg-[#DC131C] text-white' : 'text-[#8f98ad] hover:bg-[#1b2230] hover:text-white' }}">
       <i class="fa-solid fa-table-list w-4 text-center"></i>
       <span>Plan Features</span>
+    </a>
+
+    <a href="{{ url('/verification-levels') }}"
+       class="mb-1 flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition
+       {{ request()->is('verification-levels*') ? 'bg-[#DC131C] text-white' : 'text-[#8f98ad] hover:bg-[#1b2230] hover:text-white' }}">
+      <i class="fa-solid fa-award w-4 text-center"></i>
+      <span>Verification Levels</span>
     </a>
 
     <a href="{{ url('/incidents') }}"

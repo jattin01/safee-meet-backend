@@ -24,9 +24,19 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (DB::getDriverName() !== 'mysql') {
+            if (! Schema::hasColumn('user_verifications', 'reviewed_by_admin_id')) {
+                Schema::table('user_verifications', function (Blueprint $table): void {
+                    $table->unsignedBigInteger('reviewed_by_admin_id')->nullable();
+                });
+            }
+
+            return;
+        }
+
         $adminIdType = $this->columnType('admins', 'id') ?? 'int unsigned';
 
-        if (!Schema::hasColumn('user_verifications', 'reviewed_by_admin_id')) {
+        if (! Schema::hasColumn('user_verifications', 'reviewed_by_admin_id')) {
             DB::statement("ALTER TABLE `user_verifications` ADD COLUMN `reviewed_by_admin_id` {$adminIdType} NULL AFTER `reviewed_by`");
         } else {
             // Recover from an earlier attempt that created it with a mismatched
@@ -34,7 +44,7 @@ return new class extends Migration
             DB::statement("ALTER TABLE `user_verifications` MODIFY `reviewed_by_admin_id` {$adminIdType} NULL");
         }
 
-        if (!$this->hasForeignKey('user_verifications', 'reviewed_by_admin_id', 'admins')) {
+        if (! $this->hasForeignKey('user_verifications', 'reviewed_by_admin_id', 'admins')) {
             DB::statement('ALTER TABLE `user_verifications`
                 ADD CONSTRAINT `user_verifications_reviewed_by_admin_id_foreign`
                 FOREIGN KEY (`reviewed_by_admin_id`) REFERENCES `admins`(`id`) ON DELETE SET NULL');

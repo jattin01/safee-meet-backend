@@ -1,24 +1,24 @@
 <?php
 
-use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Api\AuthController as PhoneOtpAuthController;
+use App\Http\Controllers\Api\BackgroundCheckController;
 use App\Http\Controllers\Api\DeviceController;
+use App\Http\Controllers\Api\DiditVerificationController;
 use App\Http\Controllers\Api\EmergencyContactController;
 use App\Http\Controllers\Api\MeetingController;
+use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\ReviewController;
-use App\Http\Controllers\Api\ProfileController; 
+use App\Http\Controllers\Api\SosController;
+use App\Http\Controllers\Api\StripeWebhookController;
+use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\VerificationApiController;
 use App\Http\Controllers\Api\VerificationController;
+use App\Http\Controllers\Api\WebhookController;
+use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\MemberController;
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Api\SosController;
-use App\Http\Controllers\Api\SubscriptionController;
-use App\Http\Controllers\Api\StripeWebhookController;
-use App\Http\Controllers\Api\WebhookController;
-use App\Http\Controllers\Api\NotificationController;
-use App\Http\Controllers\Api\DiditVerificationController;
-
 
 /*
 |--------------------------------------------------------------------------
@@ -38,11 +38,11 @@ Route::prefix('v1')->group(function (): void {
         Route::post('verify-otp', [AuthController::class, 'verifyPhoneOtpOnly'])->middleware('throttle:10,1');
         Route::post('register', [AuthController::class, 'registerUser'])->middleware('throttle:10,1');
         Route::post('login', [AuthController::class, 'loginUser'])->middleware('throttle:10,1');
-        
+
         // Legacy endpoints (commented for reference)
         // Route::post('register', [PhoneOtpAuthController::class, 'register'])->middleware('throttle:5,1');
         // Route::post('login', [PhoneOtpAuthController::class, 'login'])->middleware('throttle:5,1');
-        
+
         Route::post('check-user-exists', [AuthController::class, 'checkUserExists']);
         Route::post('verify-phone', [AuthController::class, 'verifyPhone']);
         Route::post('verify-email', [AuthController::class, 'verifyEmail']);
@@ -51,7 +51,7 @@ Route::prefix('v1')->group(function (): void {
         Route::post('phone-otp/send', [AuthController::class, 'sendPhoneOtp'])->middleware('throttle:5,1');
         Route::post('phone-otp/verify', [AuthController::class, 'verifyPhoneOtp'])->middleware('throttle:10,1');
         Route::post('social/validate', [AuthController::class, 'socialValidate']);
-        
+
         // Unified authentication endpoint (handles both email Firebase token and phone OTP)
         Route::post('unified', [AuthController::class, 'unifiedAuth'])->middleware('throttle:10,1');
     });
@@ -73,7 +73,6 @@ Route::prefix('v1')->group(function (): void {
 
     // ── Debug: no auth, no signature check — just logs whatever hits it, to
     // confirm Stripe (or anyone) can actually reach this server ──────────────
-   
 
     // ── Everything below requires a valid Sanctum token ─────────────────────
     Route::middleware('auth:sanctum')->group(function (): void {
@@ -123,7 +122,6 @@ Route::prefix('v1')->group(function (): void {
         Route::post('/subscriptions/subscribe', [SubscriptionController::class, 'subscribe']);
         Route::post('/subscriptions/cancel', [SubscriptionController::class, 'cancel']);
 
-
         Route::prefix('members')->group(function (): void {
             Route::get('search', [MemberController::class, 'searchByPin']);
             Route::get('qr', [MemberController::class, 'searchByQR']);
@@ -140,7 +138,7 @@ Route::prefix('v1')->group(function (): void {
         Route::put('/notification-preferences', [NotificationController::class, 'updatePreferences']);
 
         Route::prefix('verification')->group(function (): void {
-            Route::post('/submit', [VerificationController::class,'submitVerification',]);
+            Route::post('/submit', [VerificationController::class, 'submitVerification']);
             Route::get('status', [VerificationApiController::class, 'status']);
             Route::get('progress', [VerificationApiController::class, 'progress']);
             Route::post('id', [VerificationApiController::class, 'uploadId']);
@@ -148,6 +146,9 @@ Route::prefix('v1')->group(function (): void {
 
             Route::post('/didit/start', [DiditVerificationController::class, 'start']);
             Route::get('/didit/status', [DiditVerificationController::class, 'status']);
+
+            Route::post('/background-consent', [BackgroundCheckController::class, 'consent']);
+            Route::get('/background-status', [BackgroundCheckController::class, 'status']);
         });
     });
 });

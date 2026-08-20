@@ -11,7 +11,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        DB::statement("ALTER TABLE meetings MODIFY status ENUM('draft','scheduled','active','completed','cancelled','expired','emergency','live','incident_reported','pending_approval','declined') NOT NULL DEFAULT 'scheduled'");
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE meetings MODIFY status ENUM('draft','scheduled','active','completed','cancelled','expired','emergency','live','incident_reported','pending_approval','declined') NOT NULL DEFAULT 'scheduled'");
+        }
     }
 
     public function down(): void

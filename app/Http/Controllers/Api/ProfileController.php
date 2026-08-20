@@ -35,6 +35,7 @@ class ProfileController extends Controller
             'name' => $user->name,
             'badge' => $user->badge,
             'verification_level' => $user->verification_level,
+            'badge_icon' => $user->badge_icon_url,
             'trust_score' => $user->trust_score,
             'meetings_count' => $meetingsCount,
             'rating' => $user->rating,
