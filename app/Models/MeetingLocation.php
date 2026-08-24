@@ -3,11 +3,14 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class MeetingLocation extends Model
 {
+    use SoftDeletes;
+
     // This table has no updated_at column.
     public $timestamps = false;
 

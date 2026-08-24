@@ -20,6 +20,25 @@ use Illuminate\Support\Facades\Route;
 Route::get('/terms-and-conditions', [TermsController::class, 'public'])->name('terms.public');
 Route::get('/privacy-policy', [PrivacyPolicyController::class, 'public'])->name('privacy-policy.public');
 
+// TEMPORARY — for testing Telesign OTP sending. Remove after verifying.
+// Usage: /test-telesign-otp?phone=91XXXXXXXXXX
+Route::get('/test-telesign-otp', function (\Illuminate\Http\Request $request) {
+    $phone = $request->query('phone');
+
+    if (! $phone) {
+        return response()->json(['error' => 'Pass ?phone=91XXXXXXXXXX in the URL'], 400);
+    }
+
+    $otp = (string) rand(100000, 999999);
+    $result = app(\App\Services\Sms\TelesignSmsService::class)->sendOtp($phone, $otp);
+
+    return response()->json([
+        'sent' => $result,
+        'otp_used' => $otp,
+        'note' => 'Check storage/logs/laravel.log for full Telesign response/error details.',
+    ]);
+});
+
 Route::middleware('guest:admin')->group(function () {
 
     Route::get('/login', [LoginController::class, 'index'])->name('login');
