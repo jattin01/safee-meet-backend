@@ -26,6 +26,11 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 Route::post('/webhooks/didit', [DiditVerificationController::class, 'handleWebhook'])->name('webhooks.didit');
+
+// TEMPORARY — for testing/debugging the Telesign SMS integration directly. Remove after verifying.
+// Usage: POST /api/test-telesign-otp  { "phone_number": "91XXXXXXXXXX" }
+Route::post('/test-telesign-otp', [\App\Http\Controllers\Api\TelesignTestController::class, 'sendOtp'])
+    ->middleware('throttle:5,1');
 Route::middleware('auth:sanctum')->get('/v1/auth/phone/home', [ProfileController::class, 'home']);
 Route::prefix('v1')->group(function (): void {
 
@@ -62,7 +67,6 @@ Route::prefix('v1')->group(function (): void {
         Route::post('login', [PhoneOtpAuthController::class, 'login'])->middleware('throttle:5,1');
         Route::post('login-or-register', [PhoneOtpAuthController::class, 'loginOrRegister'])->middleware('throttle:5,1');
         Route::post('verify-otp', [PhoneOtpAuthController::class, 'verifyOtp'])->middleware('throttle:10,1');
-        Route::delete('delete-account', [PhoneOtpAuthController::class, 'deleteAccountByPhone']);
     });
 
     //  Route::post('webhook', [WebhookController::class, 'webhook']);
@@ -85,6 +89,7 @@ Route::prefix('v1')->group(function (): void {
         Route::prefix('auth/phone')->group(function (): void {
             Route::get('me', [PhoneOtpAuthController::class, 'me']);
             Route::post('logout', [PhoneOtpAuthController::class, 'logout']);
+            Route::delete('delete-account', [PhoneOtpAuthController::class, 'deleteAccountByPhone']);
         });
 
         Route::apiResource('meetings', MeetingController::class)->only(['index', 'store', 'show', 'destroy']);

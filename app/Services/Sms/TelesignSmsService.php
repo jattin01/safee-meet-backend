@@ -33,11 +33,16 @@ class TelesignSmsService
             'message_type' => 'OTP',
         ];
 
-        $authHeader = $this->buildAuthHeader($method, $resourcePath, $customerId, $apiKey, $params);
+        $authFields = $this->buildAuthHeader($method, $resourcePath, $customerId, $apiKey, $params);
 
         try {
             $response = Http::timeout(15)
-                ->withHeaders(['Authorization' => $authHeader])
+                ->withHeaders([
+                    'Authorization' => $authFields['authorization'],
+                    'x-ts-auth-method' => $authFields['auth_method'],
+                    'x-ts-date' => $authFields['date'],
+                    'x-ts-nonce' => $authFields['nonce'],
+                ])
                 ->asForm()
                 ->post('https://rest-api.telesign.com' . $resourcePath, $params);
 
@@ -69,7 +74,10 @@ class TelesignSmsService
     }
 
     /**
-     * Build Telesign's required HMAC-SHA256 signed Authorization header.
+     * Build Telesign's required HMAC-SHA256 signed Authorization header,
+     * along with the x-ts-* header values the signature was computed over.
+     * All of these must be sent on the actual request, or Telesign will
+     * recompute a different signature and reject it.
      */
     private function buildAuthHeader(
         string $method,
@@ -77,7 +85,7 @@ class TelesignSmsService
         string $customerId,
         string $apiKey,
         array $params
-    ): string {
+    ): array {
         $authMethod = 'HMAC-SHA256';
         $nonce = (string) Str::uuid();
         $date = gmdate('D, d M Y H:i:s T');
@@ -99,6 +107,11 @@ class TelesignSmsService
 
         $signature = base64_encode(hash_hmac('sha256', $stringToSign, base64_decode($apiKey), true));
 
-        return "TSA {$customerId}:{$signature}";
+        return [
+            'authorization' => "TSA {$customerId}:{$signature}",
+            'auth_method' => $authMethod,
+            'date' => $date,
+            'nonce' => $nonce,
+        ];
     }
 }
