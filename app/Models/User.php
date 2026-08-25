@@ -66,6 +66,7 @@ class User extends Authenticatable
         'phone_verified_at',
         'role',
         'verification_level',
+        'verification_level_id',
         'badge',
         'plan_id',
         'subscription_status',

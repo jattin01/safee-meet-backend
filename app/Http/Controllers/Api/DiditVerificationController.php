@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\Verification\StoreDiditVerificationImages;
 use App\Models\UserVerification;
 use App\Services\SafetyPointService;
 use App\Support\Verification\TrustScoreCalculator;
@@ -173,6 +174,8 @@ class DiditVerificationController extends Controller
         };
 
         $verification->save();
+
+        StoreDiditVerificationImages::dispatch($verification->id)->afterCommit();
 
         if ($diditStatus === 'Approved' && ! $wasAlreadyApproved) {
             app(SafetyPointService::class)->addPoints(

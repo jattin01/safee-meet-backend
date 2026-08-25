@@ -6,8 +6,10 @@ use App\Contracts\CriminalBackgroundCheckProvider;
 use App\Exceptions\BackgroundCheckProviderException;
 use App\Models\BackgroundCheck;
 use App\Services\BackgroundChecks\DiditVerifiedIdentityExtractor;
+use App\Services\BackgroundChecks\VerificationLevelPromotionService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 class SubmitSearchbugBackgroundCheck implements ShouldQueue
@@ -24,6 +26,7 @@ class SubmitSearchbugBackgroundCheck implements ShouldQueue
     public function handle(
         CriminalBackgroundCheckProvider $provider,
         DiditVerifiedIdentityExtractor $extractor,
+        VerificationLevelPromotionService $levelPromotion,
     ): void {
         $check = BackgroundCheck::with(['verification', 'subscription.plan.comparisonFeatures', 'consent'])
             ->find($this->backgroundCheckId);
@@ -63,6 +66,10 @@ class SubmitSearchbugBackgroundCheck implements ShouldQueue
             return;
         }
 
+        // Resolve the existing catalog row before making a paid provider call.
+        // A missing Level 2 setup must not cause Searchbug to be called twice.
+        $levelTwo = $levelPromotion->levelTwo();
+
         try {
             $result = $provider->submit($extraction->identity, (string) $check->idempotency_key);
         } catch (BackgroundCheckProviderException $exception) {
@@ -75,15 +82,18 @@ class SubmitSearchbugBackgroundCheck implements ShouldQueue
             return;
         }
 
-        $check->forceFill([
-            'provider_reference_id' => $result->reference ?: $check->provider_reference_id,
-            'provider_status' => $result->providerStatus,
-            'provider_response' => $result->raw,
-            'submitted_at' => now(),
-        ]);
+        DB::transaction(function () use ($check, $result, $levelPromotion, $levelTwo): void {
+            $check->forceFill([
+                'provider_reference_id' => $result->reference ?: $check->provider_reference_id,
+                'provider_status' => $result->providerStatus,
+                'provider_response' => $result->raw,
+                'submitted_at' => now(),
+            ]);
 
-        $this->applyResult($check, $result->classification);
-        $check->save();
+            $this->applyResult($check, $result->classification);
+            $check->save();
+            $levelPromotion->promoteAfterSuccessfulCompletion($check, $levelTwo);
+        });
 
     }
 
@@ -108,6 +118,11 @@ class SubmitSearchbugBackgroundCheck implements ShouldQueue
             $check->status = 'flagged';
             $check->result_summary = 'Potential records require manual review.';
             $check->completed_at = now();
+        } elseif ($classification === 'verified') {
+            $check->status = 'clear';
+            $check->result_summary = 'Searchbug verification completed without an explicit failure.';
+            $check->completed_at = now();
+            $check->expires_at = now()->addDays((int) config('services.searchbug.valid_for_days', 365));
         } elseif ($classification === 'failed') {
             $this->markFailed($check, 'PROVIDER_REJECTED', 'Searchbug rejected the background-check request.', false);
         }

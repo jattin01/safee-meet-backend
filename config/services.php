@@ -57,6 +57,11 @@ return [
         'co_code' => env('SEARCHBUG_CO_CODE'),
         'pass' => env('SEARCHBUG_PASS'),
         'type' => env('SEARCHBUG_TYPE', 'api_crm'),
+        'record_statuses' => explode(',', env('SEARCHBUG_RECORD_STATUSES', 'RESULTS')),
+        'failure_statuses' => explode(',', env(
+            'SEARCHBUG_FAILURE_STATUSES',
+            'FAILED,FAILURE,REJECTED,DENIED,ERROR,INVALID',
+        )),
         'timeout' => (int) env('SEARCHBUG_TIMEOUT', 20),
         'consent_version' => env('BACKGROUND_CHECK_CONSENT_VERSION', '2026-08-19'),
         'valid_for_days' => (int) env('BACKGROUND_CHECK_VALID_FOR_DAYS', 365),
