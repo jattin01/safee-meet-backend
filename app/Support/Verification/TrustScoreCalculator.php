@@ -7,9 +7,9 @@ use App\Models\User;
 class TrustScoreCalculator
 {
     private const SCORES = [
-        'none'         => 0,
-        'level1'       => 33,
-        'level2'       => 66,
+        'none' => 0,
+        'level1' => 33,
+        'level2' => 67,
         'professional' => 100,
     ];
 

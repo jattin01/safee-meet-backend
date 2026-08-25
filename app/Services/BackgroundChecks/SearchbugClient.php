@@ -52,6 +52,10 @@ class SearchbugClient implements CriminalBackgroundCheckProvider
             );
         }
 
+        if ($response->status() === 204 || trim($response->body()) === '') {
+            return $this->verifiedWithoutResult($idempotencyKey, []);
+        }
+
         $data = $response->json();
         if (! is_array($data)) {
             throw new BackgroundCheckProviderException(
@@ -60,6 +64,51 @@ class SearchbugClient implements CriminalBackgroundCheckProvider
             );
         }
 
+        if ($this->hasErrors($data['Error'] ?? $data['error'] ?? null)) {
+            throw new BackgroundCheckProviderException(
+                'Searchbug rejected the criminal-record request.',
+                'SEARCHBUG_REQUEST_REJECTED',
+            );
+        }
+
+        $envelopeStatus = $data['Status'] ?? $data['status'] ?? null;
+        if ($envelopeStatus !== null) {
+            $status = mb_strtoupper(trim((string) $envelopeStatus));
+            if ($this->isFailureStatus($status)) {
+                throw new BackgroundCheckProviderException(
+                    'Searchbug returned an explicit verification failure.',
+                    'SEARCHBUG_VERIFICATION_FAILED',
+                );
+            }
+
+            if ($status === 'NORESULTS') {
+                return new ProviderResult(
+                    reference: $this->reference($idempotencyKey),
+                    providerStatus: $status,
+                    classification: 'clear',
+                    raw: $data,
+                );
+            }
+
+            $recordStatuses = array_map(
+                fn (string $value): string => mb_strtoupper(trim($value)),
+                (array) config('services.searchbug.record_statuses', ['RESULTS']),
+            );
+            if (in_array($status, $recordStatuses, true)
+                && filled($data['Data'] ?? $data['data'] ?? null)) {
+                return new ProviderResult(
+                    reference: $this->reference($idempotencyKey),
+                    providerStatus: $status,
+                    classification: 'flagged',
+                    raw: $data,
+                );
+            }
+
+            return $this->verifiedWithoutResult($idempotencyKey, $data, $status);
+        }
+
+        // Retain support for the response shape shown in Searchbug's public
+        // documentation while preferring the actual account response above.
         $result = data_get($data, 'result', $data);
         if (! is_array($result)) {
             throw new BackgroundCheckProviderException(
@@ -77,20 +126,46 @@ class SearchbugClient implements CriminalBackgroundCheckProvider
 
         $rows = data_get($result, 'meta.rows');
         if (! is_numeric($rows)) {
-            throw new BackgroundCheckProviderException(
-                'Searchbug response did not contain a result count.',
-                'INVALID_RESPONSE',
-            );
+            return $this->verifiedWithoutResult($idempotencyKey, $data);
         }
 
         $hasRecords = (int) $rows > 0;
 
         return new ProviderResult(
-            reference: 'searchbug:'.mb_substr($idempotencyKey, 0, 54),
+            reference: $this->reference($idempotencyKey),
             providerStatus: $hasRecords ? 'records_found' : 'no_records_found',
             classification: $hasRecords ? 'flagged' : 'clear',
             raw: $data,
         );
+    }
+
+    private function reference(string $idempotencyKey): string
+    {
+        return 'searchbug:'.mb_substr($idempotencyKey, 0, 54);
+    }
+
+    /** @param array<string, mixed> $raw */
+    private function verifiedWithoutResult(
+        string $idempotencyKey,
+        array $raw,
+        string $providerStatus = 'NO_STATUS',
+    ): ProviderResult {
+        return new ProviderResult(
+            reference: $this->reference($idempotencyKey),
+            providerStatus: $providerStatus !== '' ? $providerStatus : 'NO_STATUS',
+            classification: 'verified',
+            raw: $raw,
+        );
+    }
+
+    private function isFailureStatus(string $status): bool
+    {
+        $failureStatuses = array_map(
+            fn (string $value): string => mb_strtoupper(trim($value)),
+            (array) config('services.searchbug.failure_statuses', []),
+        );
+
+        return in_array($status, $failureStatuses, true);
     }
 
     private function hasErrors(mixed $errors): bool

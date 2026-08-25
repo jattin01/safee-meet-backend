@@ -3,6 +3,7 @@
 use App\Contracts\CriminalBackgroundCheckProvider;
 use App\DTOs\BackgroundChecks\ProviderResult;
 use App\DTOs\BackgroundChecks\VerifiedIdentityData;
+use App\Exceptions\BackgroundCheckProviderException;
 use App\Jobs\BackgroundChecks\EvaluateBackgroundCheckEligibility;
 use App\Jobs\BackgroundChecks\RefreshDiditDecisionForBackgroundCheck;
 use App\Jobs\BackgroundChecks\SubmitSearchbugBackgroundCheck;
@@ -14,9 +15,11 @@ use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Models\UserConsent;
 use App\Models\UserVerification;
+use App\Models\VerificationLevel;
 use App\Services\BackgroundChecks\BackgroundCheckService;
 use App\Services\BackgroundChecks\DiditVerifiedIdentityExtractor;
 use App\Services\BackgroundChecks\SearchbugClient;
+use App\Services\BackgroundChecks\VerificationLevelPromotionService;
 use Carbon\CarbonImmutable;
 use Database\Seeders\FeatureSeeder;
 use Database\Seeders\SubscriptionPlanSeeder;
@@ -32,6 +35,12 @@ beforeEach(function () {
 
     $this->seed(SubscriptionPlanSeeder::class);
     $this->seed(FeatureSeeder::class);
+    VerificationLevel::create([
+        'slug' => 'level_2_verified',
+        'name' => 'Level 2 Verified',
+        'sort_order' => 2,
+        'is_active' => true,
+    ]);
 });
 
 function diditPayload(string $idStatus = 'Approved', bool $withAddress = true): array
@@ -243,16 +252,59 @@ it('stores a normalized clear result without exposing the raw response', functio
     app(SubmitSearchbugBackgroundCheck::class, ['backgroundCheckId' => $check->id])->handle(
         app(CriminalBackgroundCheckProvider::class),
         app(DiditVerifiedIdentityExtractor::class),
+        app(VerificationLevelPromotionService::class),
     );
 
     $check->refresh();
     expect($check->status)->toBe('clear');
     expect($check->result_classification)->toBe('clear');
     expect($check->provider_response['sensitive_provider_detail'])->toBe('encrypted-at-rest');
+    $levelTwo = VerificationLevel::where('slug', 'level_2_verified')->firstOrFail();
+    $user->refresh();
+    expect($user->verification_level)->toBe('level2');
+    expect($user->verification_level_id)->toBe($levelTwo->id);
+    expect($user->trust_score)->toBe(67);
 
     Sanctum::actingAs($user);
     $response = $this->getJson('/api/v1/verification/background-status')->assertOk();
     expect($response->json('data.check'))->not->toHaveKey('providerResponse');
+});
+
+it('promotes a user when Searchbug completes with potential records', function () {
+    Queue::fake();
+    $user = backgroundEligibleUser();
+    consentToBackgroundCheck($user);
+    $check = app(BackgroundCheckService::class)->queueIfEligible($user->fresh())->existingCheck;
+
+    app()->bind(CriminalBackgroundCheckProvider::class, fn () => new class implements CriminalBackgroundCheckProvider
+    {
+        public function submit(VerifiedIdentityData $identity, string $idempotencyKey): ProviderResult
+        {
+            return new ProviderResult('provider-reference', 'RESULTS', 'flagged', [
+                'Status' => 'RESULTS',
+                'Data' => [['potential_match' => true]],
+                'Error' => null,
+            ]);
+        }
+
+        public function retrieve(string $providerReference): ProviderResult
+        {
+            throw new LogicException('Not used by this test.');
+        }
+    });
+
+    app(SubmitSearchbugBackgroundCheck::class, ['backgroundCheckId' => $check->id])->handle(
+        app(CriminalBackgroundCheckProvider::class),
+        app(DiditVerifiedIdentityExtractor::class),
+        app(VerificationLevelPromotionService::class),
+    );
+
+    expect($check->fresh()->status)->toBe('flagged');
+    $levelTwo = VerificationLevel::where('slug', 'level_2_verified')->firstOrFail();
+    $user->refresh();
+    expect($user->verification_level)->toBe('level2');
+    expect($user->verification_level_id)->toBe($levelTwo->id);
+    expect($user->trust_score)->toBe(67);
 });
 
 it('maps verified identity data through the configurable Searchbug adapter', function () {
@@ -265,10 +317,9 @@ it('maps verified identity data through the configurable Searchbug adapter', fun
 
     Http::fake([
         'https://searchbug.test/criminal' => Http::response([
-            'result' => [
-                'meta' => ['rows' => 0, 'errors' => []],
-                'criminals' => [],
-            ],
+            'Status' => 'NORESULTS',
+            'Data' => null,
+            'Error' => null,
         ]),
     ]);
 
@@ -286,7 +337,7 @@ it('maps verified identity data through the configurable Searchbug adapter', fun
     );
 
     expect($result->reference)->toStartWith('searchbug:');
-    expect($result->providerStatus)->toBe('no_records_found');
+    expect($result->providerStatus)->toBe('NORESULTS');
     expect($result->classification)->toBe('clear');
 
     Http::assertSent(function ($request): bool {
@@ -305,4 +356,65 @@ it('maps verified identity data through the configurable Searchbug adapter', fun
             && $fields['FORMAT'] === 'JSON'
             && $fields['REF'] === 'idempotency-key';
     });
+});
+
+it('accepts unknown or missing Searchbug status when no explicit failure is returned', function () {
+    config([
+        'services.searchbug.endpoint' => 'https://searchbug.test/criminal',
+        'services.searchbug.co_code' => 'test-company',
+        'services.searchbug.pass' => 'test-password',
+    ]);
+
+    foreach ([
+        ['Status' => 'UNRECOGNIZED', 'Data' => null, 'Error' => null],
+        ['Data' => null, 'Error' => null],
+    ] as $response) {
+        Http::fake([
+            'https://searchbug.test/criminal' => Http::response($response),
+        ]);
+
+        $result = app(SearchbugClient::class)->submit(
+            new VerifiedIdentityData(
+                'Test',
+                'Member',
+                CarbonImmutable::parse('1990-01-01'),
+                'Austin',
+                'TX',
+                '78701',
+                'US',
+            ),
+            'idempotency-key',
+        );
+
+        expect($result->classification)->toBe('verified');
+    }
+});
+
+it('blocks Searchbug promotion signals on an explicit failure response', function () {
+    config([
+        'services.searchbug.endpoint' => 'https://searchbug.test/criminal',
+        'services.searchbug.co_code' => 'test-company',
+        'services.searchbug.pass' => 'test-password',
+    ]);
+
+    Http::fake([
+        'https://searchbug.test/criminal' => Http::response([
+            'Status' => 'REJECTED',
+            'Data' => null,
+            'Error' => null,
+        ]),
+    ]);
+
+    expect(fn () => app(SearchbugClient::class)->submit(
+        new VerifiedIdentityData(
+            'Test',
+            'Member',
+            CarbonImmutable::parse('1990-01-01'),
+            'Austin',
+            'TX',
+            '78701',
+            'US',
+        ),
+        'idempotency-key',
+    ))->toThrow(BackgroundCheckProviderException::class);
 });

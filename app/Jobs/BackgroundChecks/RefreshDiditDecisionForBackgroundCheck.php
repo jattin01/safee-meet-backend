@@ -2,6 +2,7 @@
 
 namespace App\Jobs\BackgroundChecks;
 
+use App\Jobs\Verification\StoreDiditVerificationImages;
 use App\Models\UserVerification;
 use App\Services\Verification\DiditDecisionClient;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -43,6 +44,8 @@ class RefreshDiditDecisionForBackgroundCheck implements ShouldBeUnique, ShouldQu
             : $decision;
 
         if ($updatedPayload === $payload) {
+            StoreDiditVerificationImages::dispatch($verification->id)->afterCommit();
+
             return;
         }
 
@@ -51,5 +54,7 @@ class RefreshDiditDecisionForBackgroundCheck implements ShouldBeUnique, ShouldQu
             'didit_decision_status' => $decision['status']
                 ?? $verification->didit_decision_status,
         ])->save();
+
+        StoreDiditVerificationImages::dispatch($verification->id)->afterCommit();
     }
 }
