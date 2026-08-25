@@ -472,6 +472,7 @@ class AuthController extends Controller
             '919795449722',
             '918002359221',
             '919548621727',
+            '17322075598',
         ], true);
 
         /*
@@ -1586,8 +1587,20 @@ class AuthController extends Controller
     {
         $phoneNumber = preg_replace('/\D+/', '', $phone);
 
-        if ($phoneNumber === '17322075598') {
+
+        
+        // if ($phoneNumber === '17322075598') {
+        //     $otp = '123456';
+
+        if (in_array($phoneNumber, [
+            '919812228985',
+            '17322075598',
+            '919795449722',
+            '918002359221',
+            '919548621727',
+        ], true)) {
             $otp = '123456';
+        }
         } else {
             $otp = (string) random_int(100000, 999999);
         }
