@@ -466,7 +466,13 @@ class AuthController extends Controller
 
         $phoneNumber = preg_replace('/\D+/', '', $validated['phone']);
 
-        $isStaticNumber = $phoneNumber === '17322075598';
+        // $isStaticNumber = $phoneNumber === '17322075598';
+        $isStaticNumber = in_array($phoneNumber, [
+            '919812228985',
+            '919795449722',
+            '918002359221',
+            '919548621727',
+        ], true);
 
         /*
         |--------------------------------------------------------------------------
