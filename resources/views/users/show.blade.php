@@ -85,7 +85,7 @@
                 </div>
                 <div class=" border-r border-[#1a1a1a]  px-4 py-2 text-center">
                     <p class="font-bold text-base flex items-center justify-center gap-1">
-                        <img src="https://api.iconify.design/lucide/star.svg?color=%23facc15" class="w-3.5 h-3.5" alt=""> {{ $averageRating !== null ? number_format($averageRating, 1) : '—' }}
+                        <img src="https://api.iconify.design/lucide/shield-check.svg?color=%23facc15" class="w-3.5 h-3.5" alt=""> {{ $user->safety_score !== null ? round($user->safety_score) : '—' }}
                     </p>
                     <p class="text-[10px] uppercase tracking-wide text-[#fff]">Safety</p>
                 </div>

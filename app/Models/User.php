@@ -34,7 +34,13 @@ class User extends Authenticatable
 
     private static function usesUlidKey(): bool
     {
-        return in_array(Schema::getColumnType('users', 'id'), ['char', 'string'], true);
+        static $usesUlidKey;
+
+        return $usesUlidKey ??= in_array(
+            Schema::getColumnType('users', 'id'),
+            ['char', 'string'],
+            true,
+        );
     }
 
     protected static function booted(): void
