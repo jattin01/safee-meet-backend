@@ -23,6 +23,7 @@ class UserResource extends JsonResource
             'status'             => $this->status,
             'onboardingStatus'   => $this->onboarding_status,
             'kycStatus'          => $this->kyc_status,
+            'faceIdImage'        => $verification?->face_id_image,
             'verificationLevel'  => $verification?->verification_level ?? 0,
             'verificationStatus' => $verification?->status ?? 'not_submitted',
             'badgeIcon'          => $this->badge_icon_url,
