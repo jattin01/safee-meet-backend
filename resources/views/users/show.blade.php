@@ -21,11 +21,26 @@
         <div class="mt-2 flex items-center justify-center gap-2 mb-2">
         <h5 class="">{{ $user->name ?: $user->display_name ?: 'Unnamed User' }}</h5>
         @if($user->badge_icon_url)
-            <img src="{{ $user->badge_icon_url }}" alt="{{ $user->verificationLevel->name }}" class="inline-block size-5 rounded object-cover">
+            <button type="button" id="verification-badge" data-badge-preview="{{ $user->badge_icon_url }}" data-badge-name="{{ $user->verificationLevel->name ?? $user->badge_label }}" class="inline-flex items-center justify-center size-6 rounded-full bg-white p-0.5 shadow cursor-pointer">
+                <img src="{{ $user->badge_icon_url }}" alt="{{ $user->verificationLevel->name ?? 'Verification badge' }}" class="size-full rounded-full object-contain">
+            </button>
         @elseif($user->verification_level !== 'none')
-            <svg class="text-[#358ffc]" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="badge-check" class="lucide lucide-badge-check inline-block text-primary-500 fill-primary-500/20 size-5"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"></path><path d="m9 12 2 2 4-4"></path></svg>
+            <button type="button" id="verification-badge" class="inline-flex items-center justify-center cursor-pointer">
+                <svg class="text-[#358ffc]" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-badge-check inline-block text-primary-500 fill-primary-500/20 size-5"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"></path><path d="m9 12 2 2 4-4"></path></svg>
+            </button>
         @endif
-        <h6 class="text-[12px]">{{ $user->verificationLevel->name ?? $user->badge_label }}</h6>
+        <h6 id="verification-level-name" class="text-[12px] hidden">{{ $user->verificationLevel->name ?? $user->badge_label }}</h6>
+        </div>
+
+        <!-- Badge Preview Modal -->
+        <div id="badge-preview-modal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/70 p-4">
+            <div class="relative max-w-sm w-full">
+                <button type="button" id="badge-preview-close" class="absolute -top-3 -right-3 size-8 rounded-full bg-white text-black flex items-center justify-center shadow cursor-pointer">✕</button>
+                <div class="bg-[#111] rounded-2xl p-6 flex flex-col items-center gap-3">
+                    <img id="badge-preview-image" src="" alt="Verification badge" class="w-[300px] h-[500px] object-contain rounded-xl bg-white p-2">
+                    <p id="badge-preview-name" class="text-white text-sm font-semibold"></p>
+                </div>
+            </div>
         </div>
         <ul class="mb-2 flex flex-wrap items-center justify-center gap-2 text-gray-500 dark:text-dark-500 text-14">
             <li>
@@ -282,6 +297,39 @@
 @section('scripts')
 <script>
 document.addEventListener('DOMContentLoaded', () => {
+    const badgeButton = document.getElementById('verification-badge');
+    const badgeName = document.getElementById('verification-level-name');
+    const badgePreviewUrl = badgeButton?.dataset.badgePreview;
+
+    if (badgeButton && badgePreviewUrl) {
+        const modal = document.getElementById('badge-preview-modal');
+        const modalImage = document.getElementById('badge-preview-image');
+        const modalName = document.getElementById('badge-preview-name');
+        const modalClose = document.getElementById('badge-preview-close');
+
+        const openModal = () => {
+            modalImage.src = badgePreviewUrl;
+            modalName.textContent = badgeButton.dataset.badgeName || '';
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        };
+
+        const closeModal = () => {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        };
+
+        badgeButton.addEventListener('click', openModal);
+        modalClose.addEventListener('click', closeModal);
+        modal.addEventListener('click', (event) => {
+            if (event.target === modal) closeModal();
+        });
+    } else if (badgeButton && badgeName) {
+        badgeButton.addEventListener('click', () => {
+            badgeName.classList.toggle('hidden');
+        });
+    }
+
     const select = document.getElementById('account-status-select');
     const saveButton = document.getElementById('account-status-save');
     const currentLabel = document.getElementById('status-current');
