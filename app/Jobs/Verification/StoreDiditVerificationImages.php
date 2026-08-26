@@ -30,6 +30,13 @@ class StoreDiditVerificationImages implements ShouldQueue
 
         $failures = $storage->storeAvailableImages($verification);
         if ($failures !== []) {
+            // The sync driver runs inside the webhook request and cannot
+            // perform delayed retries. Keep the verification response intact;
+            // the storage service has already logged each failed image.
+            if (config('queue.default') === 'sync') {
+                return;
+            }
+
             throw new RuntimeException('Didit image downloads failed for: '.implode(', ', $failures));
         }
     }

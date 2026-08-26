@@ -7,6 +7,7 @@ use App\Models\Meeting;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use App\Models\UserVerification;
 
 class ProfileController extends Controller
 {
@@ -20,6 +21,7 @@ class ProfileController extends Controller
         
         //  dd($request->user());
          $user = $request->user();
+         $userVerification = UserVerification::where('user_id', $user->id)->first();
 
         $meetingsCount = $user->meetingCount();
 
@@ -33,6 +35,7 @@ class ProfileController extends Controller
         return response()->json([
             'greeting' => 'Good morning',
             'name' => $user->name,
+            'face_id_image' => $userVerification?->face_id_image,
             'badge' => $user->badge,
             'verification_level' => $user->verification_level,
             'badge_icon' => $user->badge_icon_url,

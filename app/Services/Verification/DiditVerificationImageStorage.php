@@ -49,7 +49,7 @@ class DiditVerificationImageStorage
                     'session_id' => $verification->didit_session_id,
                     'field' => $field,
                     'source_host' => parse_url($url, PHP_URL_HOST),
-                    'error' => $exception->getMessage(),
+                    'error' => $this->safeErrorMessage($exception),
                 ]);
             }
         }
@@ -195,5 +195,14 @@ class DiditVerificationImageStorage
         $session = $verification->didit_session_id ?: 'verification-'.$verification->id;
 
         return preg_replace('/[^A-Za-z0-9_-]/', '-', $session) ?: 'verification-'.$verification->id;
+    }
+
+    private function safeErrorMessage(Throwable $exception): string
+    {
+        return preg_replace(
+            '/https?:\/\/\S+/i',
+            '[redacted-url]',
+            $exception->getMessage(),
+        ) ?: 'Didit image storage failed.';
     }
 }
