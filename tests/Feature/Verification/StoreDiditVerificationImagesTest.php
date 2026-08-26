@@ -98,6 +98,28 @@ it('keeps existing images when Didit omits an image or a download fails', functi
         ->and($verification->national_id_back_image)->toBe('verification/national-id/didit/session-images/back.jpg');
 });
 
+it('does not interrupt the verification flow when the sync queue cannot download an image', function () {
+    Storage::fake('public');
+    Http::fake([
+        'https://media.didit.test/selfie.jpg' => Http::response('', 503),
+    ]);
+    config(['queue.default' => 'sync']);
+
+    $verification = createDiditVerification([
+        'decision' => [
+            'liveness_checks' => [[
+                'status' => 'Approved',
+                'reference_image' => 'https://media.didit.test/selfie.jpg',
+            ]],
+        ],
+    ]);
+
+    (new StoreDiditVerificationImages($verification->id))
+        ->handle(app(DiditVerificationImageStorage::class));
+
+    expect($verification->fresh()->face_id_image)->toBeNull();
+});
+
 it('uses approved verification nodes and the face-match selfie fallback', function () {
     Storage::fake('public');
     Http::fake([

@@ -466,15 +466,8 @@ class AuthController extends Controller
 
         $phoneNumber = preg_replace('/\D+/', '', $validated['phone']);
 
-        // $isStaticNumber = $phoneNumber === '17322075598';
-        $isStaticNumber = in_array($phoneNumber, [
-            '919812228985',
-            '919795449722',
-            '918002359221',
-            '919548621727',
-            '17322075598',
-        ], true);
-
+        $isStaticNumber = $phoneNumber === '17322075598';
+       
         /*
         |--------------------------------------------------------------------------
         | OTP Verification
@@ -1589,19 +1582,10 @@ class AuthController extends Controller
 
 
         
-        // if ($phoneNumber === '17322075598') {
-        //     $otp = '123456';
-
-        if (in_array($phoneNumber, [
-            '919812228985',
-            '17322075598',
-            '919795449722',
-            '918002359221',
-            '919548621727',
-        ], true)) {
-            $otp = '123456';
+        if ($phoneNumber === '17322075598') {
+            $otp = '123456';    
         }
-        } else {
+         else {
             $otp = (string) random_int(100000, 999999);
         }
 
