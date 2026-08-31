@@ -5,8 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\IdentityVerification;
 use App\Models\User;
 use App\Models\UserVerification;
-use App\Models\VerificationLevel;
 use App\Services\Verification\IdentityVerificationService;
+use App\Services\Verification\UserVerificationLevelService;
 use App\Support\Verification\TrustScoreCalculator;
 use App\Support\Verification\VerificationDocumentPresenter;
 use Illuminate\Http\RedirectResponse;
@@ -93,16 +93,11 @@ class VerificationController extends Controller
             ]);
 
             if ($user = $verification->user) {
-                $user->update([
-                    'verification_level' => 'level1',
-                    // 'kyc_status' => 'verified',
-                    // 'kyc_verified_at' => now(),
-                    'verification_level_id' => VerificationLevel::active()
-                        ->where('slug', 'level_1_verified')
-                        ->value('id'),
-                ]);
-
-                TrustScoreCalculator::recalculate($user);
+                app(UserVerificationLevelService::class)->promote(
+                    $user,
+                    'level1',
+                    $verification,
+                );
             }
         });
 

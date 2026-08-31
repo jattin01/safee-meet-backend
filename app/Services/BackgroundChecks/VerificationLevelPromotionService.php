@@ -5,16 +5,17 @@ namespace App\Services\BackgroundChecks;
 use App\Models\BackgroundCheck;
 use App\Models\User;
 use App\Models\VerificationLevel;
-use App\Support\Verification\TrustScoreCalculator;
-use RuntimeException;
+use App\Services\Verification\UserVerificationLevelService;
 
 class VerificationLevelPromotionService
 {
+    public function __construct(
+        private readonly UserVerificationLevelService $levelService,
+    ) {}
+
     public function levelTwo(): VerificationLevel
     {
-        return VerificationLevel::active()
-            ->where('slug', 'level_2_verified')
-            ->first() ?? throw new RuntimeException('The active Level 2 verification catalog record is missing.');
+        return $this->levelService->catalogLevel('level2');
     }
 
     public function promoteAfterSuccessfulCompletion(BackgroundCheck $check, VerificationLevel $levelTwo): void
@@ -25,15 +26,15 @@ class VerificationLevelPromotionService
             return;
         }
 
-        $user = User::query()->lockForUpdate()->find($check->user_id);
-        if (! $user || $user->verification_level === 'professional') {
+        $user = User::find($check->user_id);
+        if (! $user) {
             return;
         }
 
-        $user->forceFill([
-            'verification_level' => 'level2',
-            'verification_level_id' => $levelTwo->id,
-            'trust_score' => TrustScoreCalculator::scoreFor('level2'),
-        ])->save();
+        $this->levelService->promote(
+            $user,
+            'level2',
+            catalogLevel: $levelTwo,
+        );
     }
 }

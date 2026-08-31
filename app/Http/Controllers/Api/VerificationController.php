@@ -3,9 +3,10 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\VerificationRequest;
 use App\Models\UserVerification;
+use App\Models\VerificationRequest;
 use App\Services\PushNotificationService;
+use App\Services\Verification\UserVerificationLevelService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -13,15 +14,14 @@ use Illuminate\Support\Facades\Storage;
 
 class VerificationController extends Controller
 {
-
     public function submitVerification(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'face_id_image' => ['required','image','mimes:jpg,jpeg,png,webp','max:5120'],
-            'national_id_front_image' => ['required','image','mimes:jpg,jpeg,png,webp','max:5120'],
-            'national_id_back_image' => ['required','image','mimes:jpg,jpeg,png,webp','max:5120'],
-            'national_id_number' => ['nullable','string','max:100'],
-            'national_id_country' => ['nullable','string','max:100'],
+            'face_id_image' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'national_id_front_image' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'national_id_back_image' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'national_id_number' => ['nullable', 'string', 'max:100'],
+            'national_id_country' => ['nullable', 'string', 'max:100'],
         ]);
 
         $user = $request->user();
@@ -248,42 +248,53 @@ class VerificationController extends Controller
     //     }
     // }
 
-    public function approve(Request $request,UserVerification $verification): JsonResponse
+    public function approve(Request $request, UserVerification $verification): JsonResponse
     {
-                if (
-                    !$verification->face_id_image ||
-                    !$verification->national_id_front_image ||
-                    !$verification->national_id_back_image
-                ) {
-                    return response()->json([
-                        'status' => false,
-                        'message' => 'All required verification documents are not available.',
-                    ], 422);
-                }
+        if (
+            ! $verification->face_id_image ||
+            ! $verification->national_id_front_image ||
+            ! $verification->national_id_back_image
+        ) {
+            return response()->json([
+                'status' => false,
+                'message' => 'All required verification documents are not available.',
+            ], 422);
+        }
 
-                $verification->update([
-                    'status' => 'approved',
-                    'verification_level' => 1,
-                    'reviewed_by' => $request->user()->id,
-                    'rejection_reason' => null,
-                    'reviewed_at' => now(),
-                    'approved_at' => now(),
-                    'rejected_at' => null,
-                ]);
+        DB::transaction(function () use ($request, $verification): void {
+            $verification->update([
+                'status' => 'approved',
+                'verification_level' => 1,
+                'reviewed_by' => $request->user()->id,
+                'rejection_reason' => null,
+                'reviewed_at' => now(),
+                'approved_at' => now(),
+                'rejected_at' => null,
+            ]);
 
-                app(PushNotificationService::class)->sendToUser(
-                    $verification->user,
-                    'Verification complete',
-                    'Your identity verification has been approved.',
-                    ['type' => 'verification_complete', 'verification_id' => (string) $verification->id],
+            if ($user = $verification->user) {
+                app(UserVerificationLevelService::class)->promote(
+                    $user,
+                    'level1',
+                    $verification,
                 );
-
-                return response()->json([
-                    'status' => true,
-                    'message' => 'Verification approved and Level 1 assigned.',
-                    'data' => $verification->fresh(),
-                ]);
             }
+        });
+
+        app(PushNotificationService::class)->sendToUser(
+            $verification->user,
+            'Verification complete',
+            'Your identity verification has been approved.',
+            ['type' => 'verification_complete', 'verification_id' => (string) $verification->id],
+        );
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Verification approved and Level 1 assigned.',
+            'data' => $verification->fresh(),
+        ]);
+    }
+
     /**
      * GET /api/verification/status
      * Matches the "Verification Status" screen: trust score, badges, per-level checklist.

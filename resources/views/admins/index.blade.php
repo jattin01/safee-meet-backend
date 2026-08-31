@@ -139,6 +139,7 @@
 @endsection
 
 @section('scripts')
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     const dataUrl = @json(route('admins.data'));
@@ -173,6 +174,7 @@ document.addEventListener('DOMContentLoaded', () => {
         body.innerHTML = admins.map(admin => {
             const active = Boolean(admin.status);
             const joined = new Intl.DateTimeFormat('en', {
+                day: '2-digit',
                 month: 'short',
                 year: 'numeric',
             }).format(new Date(admin.created_at));
@@ -252,7 +254,21 @@ document.addEventListener('DOMContentLoaded', () => {
         const wasActive = button.dataset.active === '1';
         const nextStatus = !wasActive;
 
-        if (!window.confirm(`${nextStatus ? 'Activate' : 'Deactivate'} this admin?`)) {
+        const confirmation = await Swal.fire({
+            title: `${nextStatus ? 'Activate' : 'Deactivate'} this admin?`,
+            text: nextStatus
+                ? 'This admin will regain access to the admin panel.'
+                : 'This admin will no longer be able to access the admin panel.',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: `Yes, ${nextStatus ? 'activate' : 'deactivate'}`,
+            confirmButtonColor: nextStatus ? '#16A34A' : '#DC131C',
+            cancelButtonColor: '#4B5563',
+            background: '#1a1a1a',
+            color: '#ffffff',
+        });
+
+        if (!confirmation.isConfirmed) {
             return;
         }
 
@@ -279,7 +295,14 @@ document.addEventListener('DOMContentLoaded', () => {
             button.textContent = nextStatus ? 'Active' : 'Inactive';
             button.className = `status-toggle rounded-full px-3 py-1 text-xs transition ${nextStatus ? 'bg-green-500/15 text-green-400 hover:bg-green-500/25' : 'bg-red-500/15 text-red-400 hover:bg-red-500/25'}`;
         } catch (error) {
-            alert(error.message);
+            await Swal.fire({
+                title: 'Status update failed',
+                text: error.message,
+                icon: 'error',
+                confirmButtonColor: '#DC131C',
+                background: '#1a1a1a',
+                color: '#ffffff',
+            });
         } finally {
             button.disabled = false;
         }

@@ -8,9 +8,13 @@
      x-data="{
         showCreate: {{ $errors->any() ? 'true' : 'false' }},
         showEdit: false,
+        badgePreview: null,
         editing: { id: null, name: '', description: '', icon_url: null, is_active: 1 },
-        openEdit(l) { this.editing = l; this.showEdit = true; }
-     }">
+        openEdit(l) { this.editing = l; this.showEdit = true; },
+        openBadgePreview(url, name) { this.badgePreview = { url, name }; },
+        closeBadgePreview() { this.badgePreview = null; }
+     }"
+     @keydown.escape.window="closeBadgePreview()">
 
     <div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -46,7 +50,12 @@
                         <td class="px-5 py-3 font-semibold text-white">
                             <div class="flex items-center gap-3">
                                 @if($level->badge_icon)
-                                    <img src="{{ '/storage/'.$level->badge_icon }}" alt="" width="32" height="32" class="h-8 w-8 flex-none rounded object-cover">
+                                    <button type="button"
+                                        @click="openBadgePreview(@js('/storage/'.$level->badge_icon), @js($level->name))"
+                                        class="w-8 flex-none cursor-zoom-in rounded focus:outline-none focus:ring-2 focus:ring-red-500"
+                                        aria-label="View {{ $level->name }} badge image">
+                                        <img src="{{ '/storage/'.$level->badge_icon }}" alt="{{ $level->name }} badge" width="32" height="32" class=" w-8 rounded object-cover">
+                                    </button>
                                 @endif
                                 <div class="min-w-0">
                                     <div class="truncate">{{ $level->name }}</div>
@@ -82,6 +91,22 @@
                 @endforelse
             </tbody>
         </table>
+    </div>
+
+    {{-- Badge image preview --}}
+    <div x-show="badgePreview" x-cloak @click.self="closeBadgePreview()"
+        class="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4"
+        role="dialog" aria-modal="true" aria-label="Badge image preview">
+        <div class="relative w-full max-w-lg rounded-2xl border border-[#2a2d3e] bg-[#111] p-6">
+            <button type="button" @click="closeBadgePreview()"
+                class="absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-white text-black shadow transition hover:bg-gray-200"
+                aria-label="Close badge image preview">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+            <img :src="badgePreview?.url" :alt="`${badgePreview?.name ?? ''} badge`"
+                class="mx-auto max-h-[70vh] w-full rounded-xl bg-white object-contain p-2">
+            <p class="mt-3 text-center text-sm font-semibold text-white" x-text="badgePreview?.name"></p>
+        </div>
     </div>
 
     {{-- ── Create Verification Level Modal ─────────────────────────────── --}}

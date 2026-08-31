@@ -6,9 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Jobs\Verification\StoreDiditVerificationImages;
 use App\Models\UserVerification;
 use App\Services\SafetyPointService;
+use App\Services\Verification\UserVerificationLevelService;
 use App\Support\Verification\TrustScoreCalculator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -198,22 +200,18 @@ class DiditVerificationController extends Controller
         }
 
         if ($diditStatus === 'Approved' && $user = $verification->user) {
-            $userUpdates = [
-                'kyc_status' => 'verified',
-                'kyc_verified_at' => now(),
-            ];
+            DB::transaction(function () use ($verification, $user): void {
+                $user->forceFill([
+                    'kyc_status' => 'verified',
+                    'kyc_verified_at' => now(),
+                ])->save();
 
-            if (in_array($user->verification_level, [null, 'none'], true)) {
-                $userUpdates['verification_level'] = 'level1';
-            }
-
-            $user->forceFill($userUpdates)->save();
-
-            if ($verification->verification_level < 1) {
-                $verification->forceFill(['verification_level' => 1])->save();
-            }
-
-            TrustScoreCalculator::recalculate($user);
+                app(UserVerificationLevelService::class)->promote(
+                    $user,
+                    'level1',
+                    $verification,
+                );
+            });
         } elseif ($diditStatus === 'Declined' && $user = $verification->user) {
             $user->forceFill([
                 'kyc_status' => 'rejected',

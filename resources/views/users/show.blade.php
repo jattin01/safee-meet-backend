@@ -295,6 +295,7 @@
 @endsection
 
 @section('scripts')
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     const badgeButton = document.getElementById('verification-badge');
@@ -343,15 +344,43 @@ document.addEventListener('DOMContentLoaded', () => {
 
         let reason = null;
         if (newStatus === 'suspended') {
-            const input = window.prompt('Reason for suspending this user (optional):');
-            if (input === null) {
+            const result = await Swal.fire({
+                title: 'Suspend this user?',
+                text: 'You can include an optional reason for the suspension.',
+                icon: 'warning',
+                input: 'textarea',
+                inputLabel: 'Suspension reason',
+                inputPlaceholder: 'Enter a reason (optional)',
+                showCancelButton: true,
+                confirmButtonText: 'Suspend user',
+                confirmButtonColor: '#DC131C',
+                cancelButtonColor: '#4B5563',
+                background: '#1a1a1a',
+                color: '#ffffff',
+            });
+
+            if (!result.isConfirmed) {
                 select.value = initialStatus;
                 return;
             }
-            reason = input || null;
-        } else if (!window.confirm(`Change this user's status to "${newStatus}"?`)) {
-            select.value = initialStatus;
-            return;
+            reason = result.value?.trim() || null;
+        } else {
+            const result = await Swal.fire({
+                title: 'Change user status?',
+                text: `This user's status will be changed to "${newStatus}".`,
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: 'Yes, change it',
+                confirmButtonColor: '#DC131C',
+                cancelButtonColor: '#4B5563',
+                background: '#1a1a1a',
+                color: '#ffffff',
+            });
+
+            if (!result.isConfirmed) {
+                select.value = initialStatus;
+                return;
+            }
         }
 
         saveButton.disabled = true;
@@ -377,7 +406,14 @@ document.addEventListener('DOMContentLoaded', () => {
             currentLabel.style.color = result.status_color;
             initialStatus = newStatus;
         } catch (error) {
-            alert(error.message);
+            await Swal.fire({
+                title: 'Status update failed',
+                text: error.message,
+                icon: 'error',
+                confirmButtonColor: '#DC131C',
+                background: '#1a1a1a',
+                color: '#ffffff',
+            });
             select.value = initialStatus;
         } finally {
             saveButton.disabled = false;
