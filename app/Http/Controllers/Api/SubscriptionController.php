@@ -12,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use App\Models\UserSubscription;
 
 class SubscriptionController extends Controller
 {
@@ -126,133 +127,582 @@ class SubscriptionController extends Controller
      * Free-trial plans stay local-only (no card needed); paid plans create a
      * real Stripe subscription and may come back needing 3DS confirmation.
      */
+    // public function subscribe(Request $request): JsonResponse
+    // {
+    //     $validated = $request->validate([
+    //         'plan_slug' => ['required', 'string', Rule::exists('subscription_plans', 'slug')->where('is_active', true)],
+    //         'billing_cycle' => ['required', Rule::in(['monthly', 'yearly'])],
+    //         'stripe_payment_method_id' => ['nullable', 'string'],
+    //     ]);
+
+    //     $user = $request->user();
+    //     $plan = SubscriptionPlan::where('slug', $validated['plan_slug'])->firstOrFail();
+
+    //     // Close out any still-open subscription (trial, active, or a stalled
+    //     // payment-pending one) before starting a new one. Without this, a
+    //     // retried or upgraded subscribe() call creates a parallel Stripe
+    //     // subscription that keeps billing independently of the old one.
+    //     $stillOpen = $user->subscriptions()->whereIn('status', ['trial', 'active', 'incomplete'])->get();
+    //     foreach ($stillOpen as $old) {
+    //         if ($old->stripe_subscription_id) {
+    //             try {
+    //                 $this->stripe->cancelSubscription($old->stripe_subscription_id);
+    //             } catch (\Throwable $e) {
+    //                 // Already cancelled/expired on Stripe's side — nothing to do.
+    //             }
+    //         }
+    //         $old->update(['status' => 'cancelled', 'cancelled_at' => now()]);
+    //     }
+
+    //     $isTrial = (int) $plan->trial_days > 0;
+    //     $price = $validated['billing_cycle'] === 'yearly' ? $plan->yearly_price : $plan->monthly_price;
+
+    //     // A paid plan needs a payment method up front; a plan starting with a
+    //     // free trial does not.
+    //     if (! $isTrial && (float) $price > 0 && empty($validated['stripe_payment_method_id'])) {
+    //         return response()->json([
+    //             'message' => 'A payment method is required for this plan.',
+    //         ], 422);
+    //     }
+
+    //     $needsStripe = ! $isTrial && (float) $price > 0;
+    //     $stripeCustomer = null;
+    //     $stripeSubscription = null;
+
+    //     if ($needsStripe) {
+    //         $priceId = $this->stripe->resolvePriceId($plan, $validated['billing_cycle']);
+
+    //         if (! $priceId) {
+    //             return response()->json([
+    //                 'message' => "Plan '{$plan->slug}' has no Stripe price configured for {$validated['billing_cycle']} billing.",
+    //             ], 422);
+    //         }
+
+    //         $stripeCustomer = $this->stripe->createOrGetCustomer($user);
+    //         $stripeSubscription = $this->stripe->createSubscription(
+    //             $stripeCustomer,
+    //             $priceId,
+    //             $validated['stripe_payment_method_id'],
+    //             null,
+    //         );
+    //     }
+
+    //     // client_secret is always "{payment_intent_id}_secret_{...}" — Stripe
+    //     // stopped exposing latest_invoice.payment_intent directly, so this is
+    //     // the only place we can recover the id the payment_intent.* webhook
+    //     // events will reference.
+    //     $confirmationSecret = $stripeSubscription?->latest_invoice?->confirmation_secret;
+    //     $paymentIntentId = $confirmationSecret
+    //         ? strstr($confirmationSecret->client_secret, '_secret_', true)
+    //         : null;
+
+    //     $subscription = DB::transaction(function () use ($user, $plan, $validated, $isTrial, $price, $stripeCustomer, $stripeSubscription, $paymentIntentId) {
+    //         // A freshly created Stripe subscription is 'incomplete' until its
+    //         // first invoice is paid — only 'active'/'trialing' from Stripe
+    //         // may grant entitlements; everything else must stay non-active
+    //         // here too, or scopeActive() would let an unpaid user in.
+    //         $status = match (true) {
+    //             $isTrial => 'trial',
+    //             $stripeSubscription?->status === 'active' => 'active',
+    //             default => 'incomplete',
+    //         };
+
+    //         $subscription = Subscription::create([
+    //             'user_id' => $user->id,
+    //             'plan_id' => $plan->id,
+    //             'price' => $price,
+    //             'billing_cycle' => $validated['billing_cycle'],
+    //             'status' => $status,
+    //             'trial_days' => $plan->trial_days,
+    //             'started_at' => now(),
+    //             'renews_at' => match (true) {
+    //                 $isTrial => now()->addDays($plan->trial_days),
+    //                 $validated['billing_cycle'] === 'yearly' => now()->addYear(),
+    //                 default => now()->addMonth(),
+    //             },
+    //             'stripe_customer_id' => $stripeCustomer?->id,
+    //             'stripe_subscription_id' => $stripeSubscription?->id,
+    //         ]);
+
+    //         if ($paymentIntentId) {
+    //             Payment::create([
+    //                 'user_id' => $user->id,
+    //                 'subscription_id' => $subscription->id,
+    //                 'stripe_payment_intent_id' => $paymentIntentId,
+    //                 'amount' => (int) round($price * 100),
+    //                 'status' => 'pending',
+    //             ]);
+    //         }
+
+    //         $user->update([
+    //             'plan_id' => $plan->id,
+    //             'subscription_status' => $subscription->status,
+    //         ]);
+
+    //         return $subscription;
+    //     });
+
+    //     $response = $subscription->load('plan')->toArray();
+
+    //     // App must confirm this client_secret via Stripe SDK (confirmPayment)
+    //     // before the subscription becomes chargeable; the webhook then flips
+    //     // the local status to 'active' once invoice.paid fires.
+    //     if ($confirmationSecret) {
+    //         $response['payment_intent_client_secret'] = $confirmationSecret->client_secret;
+    //         $response['payment_intent_status'] = $stripeSubscription->status;
+    //     }
+
+    //     return response()->json($response, 201);
+    // }
     public function subscribe(Request $request): JsonResponse
-    {
-        $validated = $request->validate([
-            'plan_slug' => ['required', 'string', Rule::exists('subscription_plans', 'slug')->where('is_active', true)],
-            'billing_cycle' => ['required', Rule::in(['monthly', 'yearly'])],
-            'stripe_payment_method_id' => ['nullable', 'string'],
-        ]);
+{
+    $validated = $request->validate([
+        'plan_slug' => [
+            'required',
+            'string',
+            Rule::exists('subscription_plans', 'slug')
+                ->where('is_active', true),
+        ],
 
-        $user = $request->user();
-        $plan = SubscriptionPlan::where('slug', $validated['plan_slug'])->firstOrFail();
+        'billing_cycle' => [
+            'required',
+            Rule::in(['monthly', 'yearly']),
+        ],
 
-        // Close out any still-open subscription (trial, active, or a stalled
-        // payment-pending one) before starting a new one. Without this, a
-        // retried or upgraded subscribe() call creates a parallel Stripe
-        // subscription that keeps billing independently of the old one.
-        $stillOpen = $user->subscriptions()->whereIn('status', ['trial', 'active', 'incomplete'])->get();
-        foreach ($stillOpen as $old) {
-            if ($old->stripe_subscription_id) {
-                try {
-                    $this->stripe->cancelSubscription($old->stripe_subscription_id);
-                } catch (\Throwable $e) {
-                    // Already cancelled/expired on Stripe's side — nothing to do.
-                }
+        'stripe_payment_method_id' => [
+            'nullable',
+            'string',
+        ],
+    ]);
+
+    $user = $request->user();
+
+    $plan = SubscriptionPlan::where(
+        'slug',
+        $validated['plan_slug']
+    )->firstOrFail();
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Cancel Existing Open Subscriptions
+    |--------------------------------------------------------------------------
+    */
+
+    $stillOpen = $user->subscriptions()
+        ->whereIn('status', [
+            'trial',
+            'active',
+            'incomplete',
+        ])
+        ->get();
+
+    foreach ($stillOpen as $old) {
+
+        if ($old->stripe_subscription_id) {
+            try {
+                $this->stripe->cancelSubscription(
+                    $old->stripe_subscription_id
+                );
+            } catch (\Throwable $e) {
+                // Already cancelled or expired on Stripe.
             }
-            $old->update(['status' => 'cancelled', 'cancelled_at' => now()]);
         }
 
-        $isTrial = (int) $plan->trial_days > 0;
-        $price = $validated['billing_cycle'] === 'yearly' ? $plan->yearly_price : $plan->monthly_price;
+        $old->update([
+            'status' => 'cancelled',
+            'cancelled_at' => now(),
+        ]);
 
-        // A paid plan needs a payment method up front; a plan starting with a
-        // free trial does not.
-        if (! $isTrial && (float) $price > 0 && empty($validated['stripe_payment_method_id'])) {
+        /*
+        |--------------------------------------------------------------------------
+        | Update Corresponding User Subscription
+        |--------------------------------------------------------------------------
+        */
+
+        UserSubscription::where(
+            'subscription_id',
+            $old->subscription_id
+        )->update([
+            'status' => 'cancelled',
+            'cancelled_at' => now(),
+        ]);
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Determine Trial & Price
+    |--------------------------------------------------------------------------
+    */
+
+    $isTrial = (int) $plan->trial_days > 0;
+
+    $price = $validated['billing_cycle'] === 'yearly'
+        ? $plan->yearly_price
+        : $plan->monthly_price;
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Validate Payment Method
+    |--------------------------------------------------------------------------
+    */
+
+    if (
+        ! $isTrial &&
+        (float) $price > 0 &&
+        empty($validated['stripe_payment_method_id'])
+    ) {
+        return response()->json([
+            'message' => 'A payment method is required for this plan.',
+        ], 422);
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Stripe Subscription Creation
+    |--------------------------------------------------------------------------
+    */
+
+    $needsStripe = ! $isTrial && (float) $price > 0;
+
+    $stripeCustomer = null;
+    $stripeSubscription = null;
+
+    if ($needsStripe) {
+
+        $priceId = $this->stripe->resolvePriceId(
+            $plan,
+            $validated['billing_cycle']
+        );
+
+        if (! $priceId) {
             return response()->json([
-                'message' => 'A payment method is required for this plan.',
+                'message' =>
+                    "Plan '{$plan->slug}' has no Stripe price configured for "
+                    . "{$validated['billing_cycle']} billing.",
             ], 422);
         }
 
-        $needsStripe = ! $isTrial && (float) $price > 0;
-        $stripeCustomer = null;
-        $stripeSubscription = null;
 
-        if ($needsStripe) {
-            $priceId = $this->stripe->resolvePriceId($plan, $validated['billing_cycle']);
+        $stripeCustomer = $this->stripe->createOrGetCustomer(
+            $user
+        );
 
-            if (! $priceId) {
-                return response()->json([
-                    'message' => "Plan '{$plan->slug}' has no Stripe price configured for {$validated['billing_cycle']} billing.",
-                ], 422);
-            }
 
-            $stripeCustomer = $this->stripe->createOrGetCustomer($user);
-            $stripeSubscription = $this->stripe->createSubscription(
-                $stripeCustomer,
-                $priceId,
-                $validated['stripe_payment_method_id'],
-                null,
-            );
-        }
-
-        // client_secret is always "{payment_intent_id}_secret_{...}" — Stripe
-        // stopped exposing latest_invoice.payment_intent directly, so this is
-        // the only place we can recover the id the payment_intent.* webhook
-        // events will reference.
-        $confirmationSecret = $stripeSubscription?->latest_invoice?->confirmation_secret;
-        $paymentIntentId = $confirmationSecret
-            ? strstr($confirmationSecret->client_secret, '_secret_', true)
-            : null;
-
-        $subscription = DB::transaction(function () use ($user, $plan, $validated, $isTrial, $price, $stripeCustomer, $stripeSubscription, $paymentIntentId) {
-            // A freshly created Stripe subscription is 'incomplete' until its
-            // first invoice is paid — only 'active'/'trialing' from Stripe
-            // may grant entitlements; everything else must stay non-active
-            // here too, or scopeActive() would let an unpaid user in.
-            $status = match (true) {
-                $isTrial => 'trial',
-                $stripeSubscription?->status === 'active' => 'active',
-                default => 'incomplete',
-            };
-
-            $subscription = Subscription::create([
-                'user_id' => $user->id,
-                'plan_id' => $plan->id,
-                'price' => $price,
-                'billing_cycle' => $validated['billing_cycle'],
-                'status' => $status,
-                'trial_days' => $plan->trial_days,
-                'started_at' => now(),
-                'renews_at' => match (true) {
-                    $isTrial => now()->addDays($plan->trial_days),
-                    $validated['billing_cycle'] === 'yearly' => now()->addYear(),
-                    default => now()->addMonth(),
-                },
-                'stripe_customer_id' => $stripeCustomer?->id,
-                'stripe_subscription_id' => $stripeSubscription?->id,
-            ]);
-
-            if ($paymentIntentId) {
-                Payment::create([
-                    'user_id' => $user->id,
-                    'subscription_id' => $subscription->id,
-                    'stripe_payment_intent_id' => $paymentIntentId,
-                    'amount' => (int) round($price * 100),
-                    'status' => 'pending',
-                ]);
-            }
-
-            $user->update([
-                'plan_id' => $plan->id,
-                'subscription_status' => $subscription->status,
-            ]);
-
-            return $subscription;
-        });
-
-        $response = $subscription->load('plan')->toArray();
-
-        // App must confirm this client_secret via Stripe SDK (confirmPayment)
-        // before the subscription becomes chargeable; the webhook then flips
-        // the local status to 'active' once invoice.paid fires.
-        if ($confirmationSecret) {
-            $response['payment_intent_client_secret'] = $confirmationSecret->client_secret;
-            $response['payment_intent_status'] = $stripeSubscription->status;
-        }
-
-        return response()->json($response, 201);
+        $stripeSubscription = $this->stripe->createSubscription(
+            $stripeCustomer,
+            $priceId,
+            $validated['stripe_payment_method_id'],
+            null,
+        );
     }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Get Payment Intent ID
+    |--------------------------------------------------------------------------
+    */
+
+    $confirmationSecret =
+        $stripeSubscription?->latest_invoice?->confirmation_secret;
+
+    $paymentIntentId = $confirmationSecret
+        ? strstr(
+            $confirmationSecret->client_secret,
+            '_secret_',
+            true
+        )
+        : null;
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Create Local Subscription Records
+    |--------------------------------------------------------------------------
+    */
+
+    $subscription = DB::transaction(function () use (
+        $user,
+        $plan,
+        $validated,
+        $isTrial,
+        $price,
+        $stripeCustomer,
+        $stripeSubscription,
+        $paymentIntentId
+    ) {
+
+        /*
+        |--------------------------------------------------------------------------
+        | Determine Subscription Status
+        |--------------------------------------------------------------------------
+        */
+
+        $status = match (true) {
+            $isTrial => 'trial',
+
+            $stripeSubscription?->status === 'active'
+                => 'active',
+
+            default => 'incomplete',
+        };
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Calculate Renewal Date
+        |--------------------------------------------------------------------------
+        */
+
+        $renewsAt = match (true) {
+
+            $isTrial => now()->addDays(
+                $plan->trial_days
+            ),
+
+            $validated['billing_cycle'] === 'yearly'
+                => now()->addYear(),
+
+            default => now()->addMonth(),
+        };
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Create Main Subscription
+        |--------------------------------------------------------------------------
+        */
+
+        $subscription = Subscription::create([
+            'user_id' => $user->id,
+
+            'plan_id' => $plan->id,
+
+            'price' => $price,
+
+            'billing_cycle' =>
+                $validated['billing_cycle'],
+
+            'status' => $status,
+
+            'trial_days' => $plan->trial_days,
+
+            'started_at' => now(),
+
+            'renews_at' => $renewsAt,
+
+            'stripe_customer_id' =>
+                $stripeCustomer?->id,
+
+            'stripe_subscription_id' =>
+                $stripeSubscription?->id,
+        ]);
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Create User Subscription Feature Snapshot
+        |--------------------------------------------------------------------------
+        */
+
+        UserSubscription::create([
+
+            /*
+            |--------------------------------------------------------------
+            | Relationship
+            |--------------------------------------------------------------
+            */
+
+            'user_id' => $user->id,
+
+            'plan_id' => $plan->id,
+
+
+            /*
+            |--------------------------------------------------------------
+            | Subscription ID
+            |
+            | If subscriptions.subscription_id is a ULID CHAR(26),
+            | this will be stored here.
+            |--------------------------------------------------------------
+            */
+
+            'subscription_id' =>
+                $subscription->subscription_id,
+
+
+            /*
+            |--------------------------------------------------------------
+            | Subscription Details
+            |--------------------------------------------------------------
+            */
+
+            'price' => $price,
+
+            'billing_cycle' =>
+                $validated['billing_cycle'],
+
+            'status' => $status,
+
+            'trial_days' =>
+                $plan->trial_days,
+
+            'started_at' =>
+                $subscription->started_at,
+
+            'renews_at' =>
+                $subscription->renews_at,
+
+            'cancelled_at' => null,
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Stripe Details
+            |--------------------------------------------------------------------------
+            */
+
+            'stripe_customer_id' =>
+                $stripeCustomer?->id,
+
+            'stripe_subscription_id' =>
+                $stripeSubscription?->id,
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Subscription Feature Values
+            |--------------------------------------------------------------------------
+            */
+
+            'safee_pin_search' =>
+                $plan->safee_pin_search,
+
+            'meeting_history' =>
+                $plan->meeting_history,
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Boolean Features
+            |--------------------------------------------------------------------------
+            */
+
+            'level_1_verification' =>
+                (bool) $plan->level_1_verification,
+
+            'verified_badge_display' =>
+                (bool) $plan->verified_badge_display,
+
+            'qr_generation' =>
+                (bool) $plan->qr_generation,
+
+            'trust_score_calculation' =>
+                (bool) $plan->trust_score_calculation,
+
+            'safety_score_analytics' =>
+                (bool) $plan->safety_score_analytics,
+
+            'trusted_contact_alerts' =>
+                (bool) $plan->trusted_contact_alerts,
+
+            'premium_badge' =>
+                (bool) $plan->premium_badge,
+        ]);
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Create Payment Record
+        |--------------------------------------------------------------------------
+        */
+
+        if ($paymentIntentId) {
+
+            Payment::create([
+
+                'user_id' =>
+                    $user->id,
+
+                'subscription_id' =>
+                    $subscription->id,
+
+                'stripe_payment_intent_id' =>
+                    $paymentIntentId,
+
+                'amount' =>
+                    (int) round($price * 100),
+
+                'status' =>
+                    'pending',
+            ]);
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Update User Current Subscription
+        |--------------------------------------------------------------------------
+        */
+
+        $user->update([
+
+            'plan_id' =>
+                $plan->id,
+
+            'subscription_status' =>
+                $subscription->status,
+        ]);
+
+
+        return $subscription;
+    });
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Prepare Response
+    |--------------------------------------------------------------------------
+    */
+
+    $response = $subscription
+        ->load('plan')
+        ->toArray();
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Stripe Payment Confirmation
+    |--------------------------------------------------------------------------
+    */
+
+    if ($confirmationSecret) {
+
+        $response[
+            'payment_intent_client_secret'
+        ] = $confirmationSecret->client_secret;
+
+        $response[
+            'payment_intent_status'
+        ] = $stripeSubscription->status;
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Return Response
+    |--------------------------------------------------------------------------
+    */
+
+    return response()->json(
+        $response,
+        201
+    );
+}
 
     /**
      * POST /api/subscriptions/cancel
