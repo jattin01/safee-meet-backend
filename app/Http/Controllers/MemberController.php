@@ -7,7 +7,6 @@ use App\Models\SearchHistory;
 use App\Models\User;
 use App\Models\UserSubscription;
 use App\Services\PlanEntitlements;
-use App\Support\Verification\VerificationLevelResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -348,6 +347,7 @@ public function searchByQR(Request $request): JsonResponse
 
         $usersById = User::whereIn('id', $rows->pluck('member_id'))
             ->where('status', 'active')
+            ->with(['userVerification', 'verificationLevel'])
             ->get()
             ->keyBy(fn (User $u) => (string) $u->id);
 
@@ -493,18 +493,26 @@ public function searchByQR(Request $request): JsonResponse
 
     private function formatMember(User $user): array
     {
+        // Verification fields below are calculated exactly as in
+        // App\Http\Resources\Auth\UserResource (the auth/me API), so the two
+        // endpoints stay consistent for the same user.
+        $verification = $user->userVerification;
+
         return [
-            'id'                => $user->id,
-            'name'              => $user->display_name ?? 'SAFEE User',
-            'safeePIN'          => $user->safee_pin,
-            'avatarUrl'         => $user->avatar_url,
-            'trustScore'        => (int) ($user->trust_score ?? 0),
-            'safetyScore'       => (int) ($user->safety_score ?? 0),
-            'verificationLevel' => VerificationLevelResolver::fromUser($user->kyc_status, $user->trust_tier),
-            'subscriptionPlan'  => 'free',
-            'rating'            => 0.0,
-            'totalMeetings'     => $user->meetingCount(),
-            'badges'            => [],
+            'id'                  => $user->id,
+            'name'                => $user->display_name ?? 'SAFEE User',
+            'safeePIN'            => $user->safee_pin,
+            'avatarUrl'           => $user->avatar_url,
+            'trustScore'          => (int) ($user->trust_score ?? 0),
+            'safetyScore'         => (int) ($user->safety_score ?? 0),
+            'verificationLevel'   => $user->verification_level,
+            'verificationLevelId' => $user->verification_level_id,
+            'verificationStatus'  => $verification?->status ?? 'not_submitted',
+            'badgeIcon'           => $user->badge_icon_url,
+            'subscriptionPlan'    => 'free',
+            'rating'              => 0.0,
+            'totalMeetings'       => $user->meetingCount(),
+            'badges'              => [],
         ];
     }
 }
