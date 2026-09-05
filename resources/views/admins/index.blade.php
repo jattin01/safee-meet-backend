@@ -173,11 +173,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
         body.innerHTML = admins.map(admin => {
             const active = Boolean(admin.status);
-            const joined = new Intl.DateTimeFormat('en', {
+            const joined = new Intl.DateTimeFormat('en-GB', {
                 day: '2-digit',
                 month: 'short',
                 year: 'numeric',
-            }).format(new Date(admin.created_at));
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: true,
+            }).format(new Date(admin.created_at)).replace(/\b(am|pm)\b/i, m => m.toUpperCase());
+
+            
 
             return `
                 <tr class="border-b border-[#2a2d3e] last:border-b-0">

@@ -11,9 +11,43 @@
             <h1 class="text-2xl font-bold text-white">User Management</h1>
             <p id="user-total" class="text-sm text-gray-400 mt-1">Loading users...</p>
         </div>
-        <a href="{{ route('users.export') }}" class="bg-red-500 hover:bg-red-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition inline-block">
+        <a id="export-link" href="{{ route('users.export') }}" class="bg-red-500 hover:bg-red-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition inline-block">
             Export CSV
         </a>
+    </div>
+
+    {{-- Filter bar: search + status + plan + joined date range, all AJAX-driven --}}
+    <div id="user-filter-bar" style="background:#000; border:1px solid #1a1a1a; border-radius:12px; padding:16px 20px; margin-bottom:16px; display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+        <input
+            type="text"
+            id="filter-search"
+            placeholder="Search by name, email, phone or Safee Pin..."
+            style="flex:1 1 240px; min-width:200px; background:#111; border:1px solid #2a2a2a; border-radius:8px; padding:9px 12px; color:#fff; font-size:13px; outline:none;"
+        >
+
+        <select id="filter-status" style="background:#111; border:1px solid #2a2a2a; border-radius:8px; padding:9px 12px; color:#fff; font-size:13px; outline:none;">
+            <option value="">All Statuses</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+            <option value="suspended">Suspended</option>
+            <option value="deleted">Deleted</option>
+        </select>
+
+        <select id="filter-plan" style="background:#111; border:1px solid #2a2a2a; border-radius:8px; padding:9px 12px; color:#fff; font-size:13px; outline:none;">
+            <option value="">All Plans</option>
+            @foreach($plans as $plan)
+                <option value="{{ $plan->id }}">{{ $plan->name }}</option>
+            @endforeach
+        </select>
+
+        <div style="display:flex; align-items:center; gap:6px; background:#111; border:1px solid #2a2a2a; border-radius:8px; padding:6px 10px;">
+            <span style="color:#6b7280; font-size:14px;">📅</span>
+            <input type="date" id="filter-date-from" title="Joined from" style="background:transparent; border:none; color:#fff; font-size:13px; outline:none; color-scheme:dark;">
+            <span style="color:#4b5563; font-size:12px;">to</span>
+            <input type="date" id="filter-date-to" title="Joined to" style="background:transparent; border:none; color:#fff; font-size:13px; outline:none; color-scheme:dark;">
+        </div>
+
+        <button type="button" id="filter-clear" style="background:#111; border:1px solid #2a2a2a; color:#d1d5db; font-size:12px; padding:9px 16px; border-radius:8px; cursor:pointer;">Reset Filters</button>
     </div>
 
     {{-- Table Wrapper --}}
@@ -70,6 +104,45 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentPage = 1;
     let lastPage = 1;
 
+    const searchInput = document.getElementById('filter-search');
+    const statusSelect = document.getElementById('filter-status');
+    const planSelect = document.getElementById('filter-plan');
+    const dateFromInput = document.getElementById('filter-date-from');
+    const dateToInput = document.getElementById('filter-date-to');
+    const clearButton = document.getElementById('filter-clear');
+    const exportLink = document.getElementById('export-link');
+    const exportBaseUrl = exportLink.getAttribute('href');
+
+    const currentFilters = () => ({
+        search: searchInput.value.trim(),
+        status: statusSelect.value,
+        plan_id: planSelect.value,
+        date_from: dateFromInput.value,
+        date_to: dateToInput.value,
+    });
+
+    const buildQuery = (params) => {
+        const query = new URLSearchParams();
+        Object.entries(params).forEach(([key, value]) => {
+            if (value) query.set(key, value);
+        });
+        return query;
+    };
+
+    const updateExportLink = () => {
+        const query = buildQuery(currentFilters());
+        const queryString = query.toString();
+        exportLink.setAttribute('href', queryString ? `${exportBaseUrl}?${queryString}` : exportBaseUrl);
+    };
+
+    const debounce = (fn, delay) => {
+        let timer;
+        return (...args) => {
+            clearTimeout(timer);
+            timer = setTimeout(() => fn(...args), delay);
+        };
+    };
+
     const escapeHtml = (value) => {
         const element = document.createElement('div');
         element.textContent = value ?? '';
@@ -78,11 +151,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const joinedLabel = (value) => {
         if (!value) return '—';
-        return new Intl.DateTimeFormat('en', {
+        const date = new Date(value);
+        const datePart = new Intl.DateTimeFormat('en-GB', {
             day: '2-digit',
             month: 'short',
             year: 'numeric',
-        }).format(new Date(value));
+        }).format(date);
+        const timePart = new Intl.DateTimeFormat('en', {
+            hour: '2-digit',
+            minute: '2-digit',
+        }).format(date);
+        return `${datePart}, ${timePart}`;
     };
 
     const renderRows = (users) => {
@@ -131,7 +210,11 @@ document.addEventListener('DOMContentLoaded', () => {
         next.disabled = true;
 
         try {
-            const response = await fetch(`${dataUrl}?page=${page}&per_page=10`, {
+            const query = buildQuery(currentFilters());
+            query.set('page', page);
+            query.set('per_page', 10);
+
+            const response = await fetch(`${dataUrl}?${query.toString()}`, {
                 headers: {
                     Accept: 'application/json',
                     'X-Requested-With': 'XMLHttpRequest',
@@ -162,6 +245,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     previous.addEventListener('click', () => loadPage(currentPage - 1));
     next.addEventListener('click', () => loadPage(currentPage + 1));
+
+    const applyFilters = () => {
+        updateExportLink();
+        loadPage(1);
+    };
+
+    searchInput.addEventListener('input', debounce(applyFilters, 400));
+    statusSelect.addEventListener('change', applyFilters);
+    planSelect.addEventListener('change', applyFilters);
+    dateFromInput.addEventListener('change', applyFilters);
+    dateToInput.addEventListener('change', applyFilters);
+
+    clearButton.addEventListener('click', () => {
+        searchInput.value = '';
+        statusSelect.value = '';
+        planSelect.value = '';
+        dateFromInput.value = '';
+        dateToInput.value = '';
+        applyFilters();
+    });
 
     const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
 

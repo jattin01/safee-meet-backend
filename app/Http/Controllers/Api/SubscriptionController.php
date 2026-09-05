@@ -7,6 +7,7 @@ use App\Models\Feature;
 use App\Models\Payment;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
+use App\Services\PlanEntitlements;
 use App\Services\StripeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,9 +17,10 @@ use App\Models\UserSubscription;
 
 class SubscriptionController extends Controller
 {
-    public function __construct(private readonly StripeService $stripe)
-    {
-    }
+    public function __construct(
+        private readonly StripeService $stripe,
+        private readonly PlanEntitlements $entitlements,
+    ) {}
 
     /**
      * GET /api/subscriptions/plans — "Plans" screen.
@@ -280,12 +282,16 @@ class SubscriptionController extends Controller
     $plan = SubscriptionPlan::where(
         'slug',
         $validated['plan_slug']
-    )->firstOrFail();
+    )->with('comparisonFeatures')->firstOrFail();
+
+    // Freeze the plan's current matrix before creating the user's historical
+    // subscription row. Later admin edits affect new purchases only.
+    $featureSnapshot = $this->entitlements->snapshotFor($plan);
 
 
     /*
     |--------------------------------------------------------------------------
-    | Cancel Existing Open Subscriptions
+    | Find Existing Open Subscriptions
     |--------------------------------------------------------------------------
     */
 
@@ -296,39 +302,6 @@ class SubscriptionController extends Controller
             'incomplete',
         ])
         ->get();
-
-    foreach ($stillOpen as $old) {
-
-        if ($old->stripe_subscription_id) {
-            try {
-                $this->stripe->cancelSubscription(
-                    $old->stripe_subscription_id
-                );
-            } catch (\Throwable $e) {
-                // Already cancelled or expired on Stripe.
-            }
-        }
-
-        $old->update([
-            'status' => 'cancelled',
-            'cancelled_at' => now(),
-        ]);
-
-        /*
-        |--------------------------------------------------------------------------
-        | Update Corresponding User Subscription
-        |--------------------------------------------------------------------------
-        */
-
-        UserSubscription::where(
-            'subscription_id',
-            $old->subscription_id
-        )->update([
-            'status' => 'cancelled',
-            'cancelled_at' => now(),
-        ]);
-    }
-
 
     /*
     |--------------------------------------------------------------------------
@@ -418,6 +391,18 @@ class SubscriptionController extends Controller
         )
         : null;
 
+    // Do not discontinue the working plan until validation and creation of
+    // the replacement Stripe subscription have both succeeded.
+    foreach ($stillOpen as $old) {
+        if ($old->stripe_subscription_id) {
+            try {
+                $this->stripe->cancelSubscription($old->stripe_subscription_id);
+            } catch (\Throwable $e) {
+                // Already cancelled or expired on Stripe.
+            }
+        }
+    }
+
 
     /*
     |--------------------------------------------------------------------------
@@ -433,8 +418,19 @@ class SubscriptionController extends Controller
         $price,
         $stripeCustomer,
         $stripeSubscription,
-        $paymentIntentId
+        $paymentIntentId,
+        $featureSnapshot,
+        $stillOpen
     ) {
+
+        // The old records remain as history, but only the newly-created row
+        // owns the fresh allowance after this transaction commits.
+        foreach ($stillOpen as $old) {
+            $old->update([
+                'status' => 'cancelled',
+                'cancelled_at' => now(),
+            ]);
+        }
 
         /*
         |--------------------------------------------------------------------------
@@ -579,39 +575,7 @@ class SubscriptionController extends Controller
             |--------------------------------------------------------------------------
             */
 
-            'safee_pin_search' =>
-                $plan->safee_pin_search,
-
-            'meeting_history' =>
-                $plan->meeting_history,
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | Boolean Features
-            |--------------------------------------------------------------------------
-            */
-
-            'level_1_verification' =>
-                (bool) $plan->level_1_verification,
-
-            'verified_badge_display' =>
-                (bool) $plan->verified_badge_display,
-
-            'qr_generation' =>
-                (bool) $plan->qr_generation,
-
-            'trust_score_calculation' =>
-                (bool) $plan->trust_score_calculation,
-
-            'safety_score_analytics' =>
-                (bool) $plan->safety_score_analytics,
-
-            'trusted_contact_alerts' =>
-                (bool) $plan->trusted_contact_alerts,
-
-            'premium_badge' =>
-                (bool) $plan->premium_badge,
+            ...$featureSnapshot,
         ]);
 
 
@@ -722,6 +686,10 @@ class SubscriptionController extends Controller
 
         DB::transaction(function () use ($user, $subscription) {
             $subscription->update(['status' => 'cancelled', 'cancelled_at' => now()]);
+            $subscription->userSubscription()->update([
+                'status' => 'cancelled',
+                'cancelled_at' => now(),
+            ]);
             $user->update(['subscription_status' => 'cancelled']);
         });
 

@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\FeatureController;
 use App\Http\Controllers\Admin\VerificationLevelController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\IncidentsController;
+use App\Http\Controllers\MeetingController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PrivacyPolicyController;
 use App\Http\Controllers\RevenueController;
@@ -57,6 +58,7 @@ Route::middleware('auth:admin')->group(function () {
     Route::post('/admins', [AdminController::class, 'store'])->name('admins.store');
     Route::post('/admins/{admin}/status', [AdminController::class, 'updateStatus'])->name('admins.status.update');
     Route::get('/verification', [VerificationController::class, 'index'])->name('verification');
+    Route::get('/verification/users-data', [VerificationController::class, 'usersData'])->name('verification.users.data');
     Route::get('/verification/{verification}', [VerificationController::class, 'show'])->name('verification.show');
     Route::get('/verification/{verification}/{asset}', [VerificationController::class, 'showAsset'])
         ->whereIn('asset', ['front', 'back', 'selfie'])
@@ -80,7 +82,12 @@ Route::middleware('auth:admin')->group(function () {
     Route::delete('/verification-levels/{verificationLevel}', [VerificationLevelController::class, 'destroy'])->name('verification-levels.destroy');
     Route::post('/verification-levels/{verificationLevel}/restore', [VerificationLevelController::class, 'restore'])->name('verification-levels.restore');
     Route::get('/incidents', [IncidentsController::class, 'index'])->name('incidents');
+    Route::get('/meetings', [MeetingController::class, 'index'])->name('meetings');
+    Route::get('/meetings/statuses', [MeetingController::class, 'statuses'])->name('meetings.statuses');
+    Route::get('/meetings/usernames', [MeetingController::class, 'usernames'])->name('meetings.usernamefilter');
     Route::get('/revenue', [RevenueController::class, 'index'])->name('revenue');
+    Route::get('/revenue/usernames', [RevenueController::class, 'usernames'])->name('revenue.usernamefilter');
+    Route::get('/revenue/export', [RevenueController::class, 'export'])->name('revenue.export');
     Route::get('/terms', [TermsController::class, 'index'])->name('terms.index');
     Route::get('/users/{id}', [UserController::class, 'show'])->name('users.show');
     Route::post('/users/{id}/status', [UserController::class, 'updateStatus'])->name('users.status.update');

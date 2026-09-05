@@ -82,10 +82,10 @@
 @section('content')
 @php
   $metrics = [
-    ['label' => 'Total Users', 'value' => '47,291', 'change' => '+16.24%', 'trend' => 'up', 'detail' => 'View registered users', 'icon' => 'fa-users', 'tone' => 'info'],
-    ['label' => 'Active Meetings', 'value' => '1,847', 'change' => '+8.57%', 'trend' => 'up', 'detail' => 'Live and scheduled sessions', 'icon' => 'fa-calendar-check', 'tone' => 'success'],
-    ['label' => 'Verifications', 'value' => '38,402', 'change' => '+29.08%', 'trend' => 'up', 'detail' => 'ID, face, and trust checks', 'icon' => 'fa-shield-halved', 'tone' => 'warning'],
-    ['label' => 'SOS Events', 'value' => '23', 'change' => '-15.03%', 'trend' => 'down', 'detail' => 'Open safety incidents', 'icon' => 'fa-triangle-exclamation', 'tone' => 'danger'],
+    ['label' => 'Total Users', 'value' => number_format($totalUsers), 'change' => 'Live', 'trend' => 'neutral', 'detail' => 'Registered users', 'icon' => 'fa-users', 'tone' => 'info'],
+    ['label' => 'Active Meetings', 'value' => number_format($activeMeetings), 'change' => 'Live', 'trend' => 'neutral', 'detail' => 'Live and scheduled sessions', 'icon' => 'fa-calendar-check', 'tone' => 'success'],
+    ['label' => 'Verifications', 'value' => number_format($verificationCount), 'change' => 'Live', 'trend' => 'neutral', 'detail' => 'Submitted identity checks', 'icon' => 'fa-shield-halved', 'tone' => 'warning'],
+    ['label' => 'SOS Events', 'value' => number_format($openSosCount), 'change' => 'Live', 'trend' => 'neutral', 'detail' => 'Open safety incidents', 'icon' => 'fa-triangle-exclamation', 'tone' => 'danger'],
   ];
 
   $locations = [
@@ -95,34 +95,12 @@
     ['name' => 'Hyderabad', 'value' => 48, 'color' => '#f06548'],
   ];
 
-  $verifications = [
-    ['user' => 'Anaya Sharma', 'date' => '15 Jun 2026', 'type' => 'Face Match', 'score' => '98%', 'status' => 'Approved', 'tone' => 'success'],
-    ['user' => 'Rahul Mehta', 'date' => '15 Jun 2026', 'type' => 'ID Check', 'score' => '94%', 'status' => 'Approved', 'tone' => 'success'],
-    ['user' => 'Mira Kapoor', 'date' => '14 Jun 2026', 'type' => 'Document', 'score' => '76%', 'status' => 'Review', 'tone' => 'warning'],
-    ['user' => 'Arjun Nair', 'date' => '14 Jun 2026', 'type' => 'Face Match', 'score' => '62%', 'status' => 'Flagged', 'tone' => 'danger'],
-    ['user' => 'Neha Iyer', 'date' => '13 Jun 2026', 'type' => 'ID Check', 'score' => '91%', 'status' => 'Approved', 'tone' => 'success'],
-  ];
-
-  $hosts = [
-    ['name' => 'Priya Singh', 'role' => 'Community Host', 'meetings' => '526', 'rating' => '97%', 'color' => '#299cdb'],
-    ['name' => 'Karan Patel', 'role' => 'Corporate Host', 'meetings' => '418', 'rating' => '94%', 'color' => '#0ab39c'],
-    ['name' => 'Isha Rao', 'role' => 'Campus Host', 'meetings' => '304', 'rating' => '91%', 'color' => '#f7b84b'],
-  ];
-
-  $meetings = [
-    ['id' => '#SM-7821', 'host' => 'Alex Johnson', 'guest' => 'Sarah Mitchell', 'place' => 'Downtown Coffee', 'date' => '10 Jul 2026', 'time' => '10:30 AM', 'type' => 'Coffee', 'status' => 'Upcoming', 'tone' => 'warning', 'trust' => '94%'],
-    ['id' => '#SM-7818', 'host' => 'James Carter', 'guest' => 'Mira Kapoor', 'place' => 'City Park', 'date' => '09 Jul 2026', 'time' => '04:00 PM', 'type' => 'Outdoor', 'status' => 'Live', 'tone' => 'success', 'trust' => '97%'],
-    ['id' => '#SM-7812', 'host' => 'Priya Singh', 'guest' => 'Karan Patel', 'place' => 'Orion Mall', 'date' => '08 Jul 2026', 'time' => '02:15 PM', 'type' => 'Marketplace', 'status' => 'Completed', 'tone' => 'info', 'trust' => '91%'],
-    ['id' => '#SM-7809', 'host' => 'Rahul Mehta', 'guest' => 'Neha Iyer', 'place' => 'Metro Station Gate 2', 'date' => '07 Jul 2026', 'time' => '06:45 PM', 'type' => 'Pickup', 'status' => 'Completed', 'tone' => 'info', 'trust' => '89%'],
-    ['id' => '#SM-7804', 'host' => 'Anaya Sharma', 'guest' => 'Arjun Nair', 'place' => 'Tech Hub Lobby', 'date' => '06 Jul 2026', 'time' => '11:00 AM', 'type' => 'Business', 'status' => 'Cancelled', 'tone' => 'danger', 'trust' => '72%'],
-    ['id' => '#SM-7798', 'host' => 'Isha Rao', 'guest' => 'Grace Gibbons', 'place' => 'Campus Cafe', 'date' => '05 Jul 2026', 'time' => '01:20 PM', 'type' => 'Campus', 'status' => 'Completed', 'tone' => 'info', 'trust' => '96%'],
-  ];
 @endphp
 
 <div class="dashboard-shell space-y-6">
   <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
     <div>
-      <h1 class="dashboard-title text-[22px] font-semibold tracking-normal">Good Morning, Admin!</h1>
+      <h1 class="dashboard-title text-[22px] font-semibold tracking-normal">Good Morning, @yield('dashboard-role', 'Admin')!</h1>
       <p class="dashboard-muted mt-1 text-sm">Here is what is happening with SafeeMeet today.</p>
     </div>
 
@@ -147,28 +125,31 @@
           'warning' => ['icon' => 'rgba(247, 184, 75, .15)', 'text' => '#f7b84b'],
           'danger' => ['icon' => 'rgba(240, 101, 72, .15)', 'text' => '#f06548'],
         ][$metric['tone']];
-        $changeClass = $metric['trend'] === 'up' ? 'text-[#0ab39c] bg-[#0ab39c]/10' : 'text-[#f06548] bg-[#f06548]/10';
-        $trendIcon = $metric['trend'] === 'up' ? 'fa-arrow-trend-up' : 'fa-arrow-trend-down';
+        $changeClass = $metric['trend'] === 'neutral'
+          ? 'text-[#8f98ad] bg-[#8f98ad]/10'
+          : ($metric['trend'] === 'up' ? 'text-[#0ab39c] bg-[#0ab39c]/10' : 'text-[#f06548] bg-[#f06548]/10');
+        $trendIcon = $metric['trend'] === 'neutral'
+          ? 'fa-database'
+          : ($metric['trend'] === 'up' ? 'fa-arrow-trend-up' : 'fa-arrow-trend-down');
       @endphp
 
-      <article class="dashboard-card p-5">
-        <div class="flex items-start justify-between gap-4">
-          <div>
-            <p class="dashboard-muted text-sm font-medium">{{ $metric['label'] }}</p>
-            <h2 class="dashboard-title mt-3 text-3xl font-semibold tracking-normal">{{ $metric['value'] }}</h2>
-          </div>
-          <div class="metric-icon" style="background: {{ $toneMap['icon'] }}; color: {{ $toneMap['text'] }};">
+      <article class="dashboard-card flex h-full flex-col justify-between gap-4 p-5">
+        <div class="flex items-center justify-between gap-3">
+          <p class="dashboard-muted truncate text-sm font-medium">{{ $metric['label'] }}</p>
+          <div class="metric-icon shrink-0" style="background: {{ $toneMap['icon'] }}; color: {{ $toneMap['text'] }};">
             <i class="fa-solid {{ $metric['icon'] }}"></i>
           </div>
         </div>
 
-        <div class="mt-5 flex items-center justify-between gap-3">
-          <span class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold {{ $changeClass }}">
+        <div>
+          <h2 class="dashboard-title whitespace-nowrap text-3xl font-semibold tracking-normal">{{ $metric['value'] }}</h2>
+          <span class="mt-2 inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold {{ $changeClass }}">
             <i class="fa-solid {{ $trendIcon }}"></i>
             {{ $metric['change'] }}
           </span>
-          <span class="dashboard-muted truncate text-xs">{{ $metric['detail'] }}</span>
         </div>
+
+        <p class="dashboard-muted line-clamp-2 text-xs leading-relaxed">{{ $metric['detail'] }}</p>
       </article>
     @endforeach
   </div>
@@ -192,11 +173,11 @@
       <div class="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
         <div class="rounded-md bg-[#1a1a1a] p-3">
           <p class="dashboard-muted text-xs">Users</p>
-          <p class="dashboard-title mt-1 text-lg font-semibold">47.2k</p>
+          <p class="dashboard-title mt-1 text-lg font-semibold">{{ number_format($totalUsers) }}</p>
         </div>
         <div class="rounded-md bg-[#1a1a1a] p-3">
           <p class="dashboard-muted text-xs">Meetings</p>
-          <p class="dashboard-title mt-1 text-lg font-semibold">11.8k</p>
+          <p class="dashboard-title mt-1 text-lg font-semibold">{{ number_format($meetingCount) }}</p>
         </div>
         <div class="rounded-md bg-[#1a1a1a] p-3">
           <p class="dashboard-muted text-xs">Revenue</p>
@@ -204,7 +185,7 @@
         </div>
         <div class="rounded-md bg-[#1a1a1a] p-3">
           <p class="dashboard-muted text-xs">Risk Alerts</p>
-          <p class="dashboard-title mt-1 text-lg font-semibold">128</p>
+          <p class="dashboard-title mt-1 text-lg font-semibold">{{ number_format($incidentCount) }}</p>
         </div>
       </div>
 
@@ -247,21 +228,8 @@
   <section class="dashboard-card overflow-hidden">
     <div class="flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between">
       <div>
-        <h3 class="dashboard-title text-base font-semibold">All Meeting List</h3>
-        <p class="dashboard-muted mt-1 text-sm">Complete meeting schedule with safety status and trust score.</p>
-      </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <select class="w-fit rounded-md border border-[#1a1a1a] bg-[#1a1a1a] px-3 py-2 text-sm text-[#cbd2e1] outline-none">
-          <option>All Status</option>
-          <option>Upcoming</option>
-          <option>Live</option>
-          <option>Completed</option>
-          <option>Cancelled</option>
-        </select>
-        <button class="inline-flex items-center gap-2 rounded-md bg-[#DC131C] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#d9573e]">
-          <i class="fa-solid fa-download"></i>
-          Export
-        </button>
+        <h3 class="dashboard-title text-base font-semibold">Recent Meeting List</h3>
+        <p class="dashboard-muted mt-1 text-sm">Latest meetings with safety status and trust score.</p>
       </div>
     </div>
 
@@ -281,46 +249,67 @@
           </tr>
         </thead>
         <tbody class="text-sm">
-          @foreach ($meetings as $meeting)
+          @forelse ($meetings as $meeting)
             @php
+              $meetingTone = match ($meeting->status) {
+                'completed' => 'success',
+                'scheduled', 'pending_approval' => 'warning',
+                'active', 'live' => 'info',
+                'cancelled', 'declined', 'emergency', 'incident_reported' => 'danger',
+                default => 'info',
+              };
               $meetingBadgeClass = [
                 'success' => 'bg-[#0ab39c]/10 text-[#0ab39c]',
                 'warning' => 'bg-[#f7b84b]/10 text-[#f7b84b]',
                 'danger' => 'bg-[#f06548]/10 text-[#f06548]',
                 'info' => 'bg-[#299cdb]/10 text-[#299cdb]',
-              ][$meeting['tone']];
+              ][$meetingTone];
+              $hostName = $meeting->host?->name ?: $meeting->host?->display_name ?: 'Unknown host';
+              $guestName = $meeting->guest?->name ?: $meeting->guest?->display_name ?: 'Unknown guest';
+              $meetingDate = $meeting->scheduled_start_at ?: $meeting->meeting_date;
+              $meetingTime = $meeting->scheduled_start_at
+                ? $meeting->scheduled_start_at->format('h:i A')
+                : ($meeting->meeting_time ? date('h:i A', strtotime($meeting->meeting_time)) : 'Time not set');
             @endphp
             <tr class="table-row">
-              <td class="px-5 py-4 font-semibold text-[#DC131C]">{{ $meeting['id'] }}</td>
+              <td class="px-5 py-4 font-semibold text-[#DC131C]">#{{ $meeting->reference ?: $meeting->id }}</td>
               <td class="px-5 py-4">
                 <div class="flex items-center gap-3">
                   <div class="avatar-mark bg-[#1a1a1a] text-[#cbd2e1]">
-                    {{ collect(explode(' ', $meeting['host']))->map(fn ($part) => substr($part, 0, 1))->take(2)->implode('') }}
+                    {{ $meeting->host?->initials ?? '?' }}
                   </div>
-                  <span class="dashboard-title font-medium">{{ $meeting['host'] }}</span>
+                  <span class="dashboard-title font-medium">{{ $hostName }}</span>
                 </div>
               </td>
-              <td class="px-5 py-4 text-[#cbd2e1]">{{ $meeting['guest'] }}</td>
-              <td class="dashboard-muted px-5 py-4">{{ $meeting['place'] }}</td>
+              <td class="px-5 py-4 text-[#cbd2e1]">{{ $guestName }}</td>
+              <td class="dashboard-muted px-5 py-4">{{ $meeting->planned_address ?: $meeting->location ?: 'Not specified' }}</td>
               <td class="px-5 py-4">
-                <p class="text-[#cbd2e1]">{{ $meeting['date'] }}</p>
-                <p class="dashboard-muted mt-1 text-xs">{{ $meeting['time'] }}</p>
+                <p class="text-[#cbd2e1]">{{ $meetingDate?->format('d M Y') ?? 'Date not set' }}</p>
+                <p class="dashboard-muted mt-1 text-xs">{{ $meetingTime }}</p>
               </td>
-              <td class="px-5 py-4 text-[#cbd2e1]">{{ $meeting['type'] }}</td>
+              <td class="px-5 py-4 text-[#cbd2e1]">{{ str($meeting->type ?: 'other')->replace('_', ' ')->title() }}</td>
               <td class="px-5 py-4">
                 <span class="inline-flex items-center gap-1 text-[#0ab39c]">
                   <i class="fa-solid fa-shield-halved text-xs"></i>
-                  {{ $meeting['trust'] }}
+                  {{ $meeting->trust_score_snapshot !== null ? round($meeting->trust_score_snapshot).'%' : '—' }}
                 </span>
               </td>
               <td class="px-5 py-4">
-                <span class="rounded px-2 py-1 text-xs font-semibold {{ $meetingBadgeClass }}">{{ $meeting['status'] }}</span>
+                <span class="rounded px-2 py-1 text-xs font-semibold {{ $meetingBadgeClass }}">{{ $meeting->status_label }}</span>
               </td>
-              <td class="px-5 py-4 text-right">
-                <button class="rounded-md border border-[#252b3b] px-3 py-1.5 text-xs font-semibold text-[#cbd2e1] hover:text-white">View</button>
+              <td class="px-5 py-4 text-right whitespace-nowrap">
+                @if ($meeting->host)
+                  <a href="{{ route('users.show', $meeting->host->id) }}" class="inline-flex items-center whitespace-nowrap rounded-md border border-[#252b3b] px-3 py-1.5 text-xs font-semibold text-[#cbd2e1] hover:text-white">View Host</a>
+                @else
+                  <span class="dashboard-muted">—</span>
+                @endif
               </td>
             </tr>
-          @endforeach
+          @empty
+            <tr class="table-row">
+              <td colspan="9" class="dashboard-muted px-5 py-8 text-center">No meetings found.</td>
+            </tr>
+          @endforelse
         </tbody>
       </table>
     </div>
@@ -331,13 +320,9 @@
       <div class="flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between">
         <div>
           <h3 class="dashboard-title text-base font-semibold">Recent User List</h3>
-          <p class="dashboard-muted mt-1 text-sm">Latest identity checks moving through the system.</p>
+          <p class="dashboard-muted mt-1 text-sm">Newest registered users and their account status.</p>
         </div>
-        <select class="w-fit rounded-md border border-[#1a1a1a] bg-[#1a1a1a] px-3 py-2 text-sm text-[#cbd2e1] outline-none">
-          <option>Today</option>
-          <option>Last 7 Days</option>
-          <option>This Month</option>
-        </select>
+        <a href="{{ route('users') }}" class="w-fit rounded-md border border-[#252b3b] px-3 py-2 text-sm font-semibold text-[#cbd2e1] hover:text-white">View All Users</a>
       </div>
 
       <div class="overflow-x-auto">
@@ -345,42 +330,44 @@
           <thead class="bg-[#1a1a1a] text-xs uppercase text-[#8f98ad]">
             <tr>
               <th class="px-5 py-3 font-semibold">User</th>
-              <th class="px-5 py-3 font-semibold">Date</th>
-              <th class="px-5 py-3 font-semibold">Type</th>
-              <th class="px-5 py-3 font-semibold">Score</th>
+              <th class="px-5 py-3 font-semibold">Joined</th>
+              <th class="px-5 py-3 font-semibold">Verification</th>
+              <th class="px-5 py-3 font-semibold">Trust Score</th>
               <th class="px-5 py-3 font-semibold">Status</th>
               <th class="px-5 py-3 text-right font-semibold">Action</th>
             </tr>
           </thead>
           <tbody class="text-sm">
-            @foreach ($verifications as $verification)
-              @php
-                $badgeClass = [
-                  'success' => 'bg-[#0ab39c]/10 text-[#0ab39c]',
-                  'warning' => 'bg-[#f7b84b]/10 text-[#f7b84b]',
-                  'danger' => 'bg-[#f06548]/10 text-[#f06548]',
-                ][$verification['tone']];
-              @endphp
+            @forelse ($recentUsers as $user)
               <tr class="table-row">
                 <td class="px-5 py-4">
                   <div class="flex items-center gap-3">
-                    <div class="avatar-mark bg-[#1a1a1a] text-[#cbd2e1]">
-                      {{ collect(explode(' ', $verification['user']))->map(fn ($part) => substr($part, 0, 1))->take(2)->implode('') }}
+                    <div class="avatar-mark text-white" style="background: {{ $user->avatar_color }};">
+                      {{ $user->initials }}
                     </div>
-                    <span class="dashboard-title font-medium">{{ $verification['user'] }}</span>
+                    <div>
+                      <p class="dashboard-title font-medium">{{ $user->name ?: $user->display_name ?: 'Unnamed User' }}</p>
+                      <p class="dashboard-muted mt-1 text-xs">{{ $user->email ?: $user->phone ?: 'No contact details' }}</p>
+                    </div>
                   </div>
                 </td>
-                <td class="dashboard-muted px-5 py-4">{{ $verification['date'] }}</td>
-                <td class="px-5 py-4 text-[#cbd2e1]">{{ $verification['type'] }}</td>
-                <td class="px-5 py-4 text-[#cbd2e1]">{{ $verification['score'] }}</td>
+                <td class="dashboard-muted px-5 py-4">{{ $user->created_at?->format('d M Y') ?? '—' }}</td>
                 <td class="px-5 py-4">
-                  <span class="rounded px-2 py-1 text-xs font-semibold {{ $badgeClass }}">{{ $verification['status'] }}</span>
+                  <span class="rounded px-2 py-1 text-xs font-semibold" style="background: {{ $user->verification_color }}1a; color: {{ $user->verification_color }};">{{ $user->verification_label }}</span>
+                </td>
+                <td class="px-5 py-4 text-[#cbd2e1]">{{ $user->trust_score !== null ? round($user->trust_score) : '—' }}</td>
+                <td class="px-5 py-4">
+                  <span class="rounded px-2 py-1 text-xs font-semibold" style="background: {{ $user->status_color }}1a; color: {{ $user->status_color }};">{{ $user->status_label }}</span>
                 </td>
                 <td class="px-5 py-4 text-right">
-                  <button class="rounded-md border border-[#252b3b] px-3 py-1.5 text-xs font-semibold text-[#cbd2e1] hover:text-white">View</button>
+                  <a href="{{ route('users.show', $user->id) }}" class="rounded-md border border-[#252b3b] px-3 py-1.5 text-xs font-semibold text-[#cbd2e1] hover:text-white">View</a>
                 </td>
               </tr>
-            @endforeach
+            @empty
+              <tr class="table-row">
+                <td colspan="6" class="dashboard-muted px-5 py-8 text-center">No users found.</td>
+              </tr>
+            @endforelse
           </tbody>
         </table>
       </div>
@@ -396,24 +383,26 @@
       </div>
 
       <div class="mt-5 space-y-4">
-        @foreach ($hosts as $host)
+        @forelse ($topHosts as $host)
           <div class="rounded-md border border-[#1a1a1a] bg-[#1a1a1a] p-4">
             <div class="flex items-center gap-3">
-              <div class="avatar-mark text-white" style="background: {{ $host['color'] }};">
-                {{ collect(explode(' ', $host['name']))->map(fn ($part) => substr($part, 0, 1))->take(2)->implode('') }}
+              <div class="avatar-mark text-white" style="background: {{ $host->avatar_color }};">
+                {{ $host->initials }}
               </div>
               <div class="min-w-0">
-                <p class="dashboard-title truncate text-sm font-semibold">{{ $host['name'] }}</p>
-                <p class="dashboard-muted truncate text-xs">{{ $host['role'] }}</p>
+                <p class="dashboard-title truncate text-sm font-semibold">{{ $host->name ?: $host->display_name ?: 'Unnamed User' }}</p>
+                <p class="dashboard-muted truncate text-xs">{{ str($host->account_type ?: 'Member')->replace('_', ' ')->title() }}</p>
               </div>
-              <span class="ml-auto rounded bg-[#0ab39c]/10 px-2 py-1 text-xs font-semibold text-[#0ab39c]">{{ $host['rating'] }}</span>
+              <span class="ml-auto rounded bg-[#0ab39c]/10 px-2 py-1 text-xs font-semibold text-[#0ab39c]">{{ $host->rating !== null ? number_format($host->rating, 1).'/5' : 'Not rated' }}</span>
             </div>
             <div class="mt-4 flex items-center justify-between text-sm">
               <span class="dashboard-muted">Meetings hosted</span>
-              <span class="dashboard-title font-semibold">{{ $host['meetings'] }}</span>
+              <span class="dashboard-title font-semibold">{{ number_format($host->meetings_count) }}</span>
             </div>
           </div>
-        @endforeach
+        @empty
+          <p class="dashboard-muted py-6 text-center text-sm">No hosts found.</p>
+        @endforelse
       </div>
     </section>
   </div>

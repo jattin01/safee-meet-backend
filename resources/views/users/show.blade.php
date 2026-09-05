@@ -84,6 +84,16 @@
     {{ $subscription->plan_label ?? $user->plan_label }}
   </span>
 
+  <!-- Verification Documents -->
+  @if ($user->userVerification)
+    <a href="{{ route('verification.show', $user->userVerification) }}"
+       class="group flex items-center gap-2 bg-transparent border border-blue-400/60 text-blue-300 text-[12px] font-medium px-4 py-1.5 rounded-full transition hover:bg-blue-400/10 hover:text-blue-200 hover:border-blue-300">
+      <img src="https://api.iconify.design/lucide/file-text.svg?color=%2360a5fa" class="w-3.5 h-3.5" alt="">
+      Verification Docs
+      <img src="https://api.iconify.design/lucide/arrow-up-right.svg?color=%2360a5fa" class="w-3 h-3 opacity-70 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5" alt="">
+    </a>
+  @endif
+
 </div>
         <!-- ===== Profile Card ===== -->
         <div class="bg-[#000] rounded-3xl p-5 text-white shadow-lg mt-5">
@@ -113,6 +123,24 @@
                 </div>
 
             </div>
+
+            @if($user->firebase_uid)
+            <div class="flex items-center justify-between gap-3 bg-[#111] border border-[#1a1a1a] rounded-2xl px-4 py-2.5 mt-3">
+                <div class="flex items-center gap-2 min-w-0">
+                    <img src="https://api.iconify.design/lucide/fingerprint.svg?color=%23facc15" class="w-4 h-4 shrink-0" alt="">
+                    <div class="min-w-0">
+                        <p class="text-[10px] uppercase tracking-wide text-gray-400">Firebase UID</p>
+                        <p id="firebase-uid-text" class="font-mono text-[12px] text-white truncate">{{ $user->firebase_uid }}</p>
+                    </div>
+                </div>
+                <button type="button" id="copy-firebase-uid" data-copy-value="{{ $user->firebase_uid }}"
+                        class="shrink-0 inline-flex items-center gap-1 rounded-full border border-[#2a2d3e] px-3 py-1.5 text-[11px] font-medium text-gray-300 hover:text-white hover:border-primary-500 transition cursor-pointer"
+                        title="Click to copy Firebase UID">
+                    <img src="https://api.iconify.design/lucide/copy.svg?color=%23d1d5db" class="w-3.5 h-3.5" alt="">
+                    Copy
+                </button>
+            </div>
+            @endif
         </div>
 
         <div class="mt-5 bg-[#000] rounded-3xl p-5 text-white shadow-lg">
@@ -136,54 +164,147 @@
 
         <div class="mt-5 bg-[#000] rounded-3xl p-5 text-white shadow-lg">
             @if($subscription)
-            <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                <div class="text-left">
-                    <div class="flex flex-wrap items-center gap-2 mb-2">
-                        <p class="font-bold text-white">Purchased Plan</p>
-                        <span class="px-3 py-1 rounded-full text-[11px] font-medium" style="background:{{ $subscription->status_color }}1a; color:{{ $subscription->status_color }}; border:1px solid {{ $subscription->status_color }}4d;">{{ $subscription->status_label }}</span>
-                    </div>
-                    <div class="flex items-center gap-3">
-                        <div class="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style="background:{{ $subscriptionPlan->color ?? '#DC131C' }};">
-                            <i class="fa-solid fa-crown text-white"></i>
+            <div class="text-left">
+                <div class="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#181818] via-[#101010] to-[#080808] px-5 py-5 sm:px-6">
+                    <div class="pointer-events-none absolute -right-16 -top-20 size-56 rounded-full bg-[#DC131C]/10 blur-3xl"></div>
+                    <div class="relative flex flex-wrap items-center justify-between gap-4">
+                        <div class="flex items-center gap-3">
+                            <span class="flex size-11 items-center justify-center rounded-2xl bg-[#DC131C]/15 text-[#ff4b52] ring-1 ring-[#DC131C]/25">
+                                <i class="fa-solid fa-layer-group"></i>
+                            </span>
+                            <div>
+                                <p class="text-[10px] font-bold uppercase tracking-[0.24em] text-[#ff6268]">Subscription timeline</p>
+                                <h3 class="mt-1 text-xl font-bold text-white">Plan Journey</h3>
+                                <p class="mt-1 text-xs text-slate-400">Every plan's allowance, usage and features are preserved as a snapshot.</p>
+                            </div>
                         </div>
-                        <div>
-                            <h3 class="text-xl font-extrabold text-white">{{ $subscriptionPlan->name ?? $subscription->plan_label }}</h3>
-                            <p class="text-xs text-slate-500">{{ $subscription->billing_cycle === 'trial' ? 'Trial period' : 'Monthly subscription' }}</p>
+                        <div class="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-right">
+                            <p class="text-2xl font-black text-white">{{ count($subscriptionHistory) }}</p>
+                            <p class="text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-500">{{ Str::plural('plan', count($subscriptionHistory)) }} recorded</p>
                         </div>
                     </div>
                 </div>
 
-                <div class="text-left md:text-right">
-                    <p class="text-2xl font-extrabold text-white">${{ number_format((float) $subscription->price, 2) }}</p>
-                    <p class="text-xs text-slate-500">{{ $subscription->billing_cycle === 'trial' ? 'trial' : 'per month' }}</p>
-                </div>
-            </div>
+                <div class="mt-5 space-y-4">
+                    @forelse($subscriptionHistory as $history)
+                        @php
+                            $snapshot = $history['snapshot'];
+                            $searchUsage = $history['usage']['searches'];
+                            $meetingUsage = $history['usage']['meetings'];
+                            $periodEnd = $snapshot->cancelled_at ?? $snapshot->renews_at;
+                            $enabledFeatureCount = collect($history['features'])->where('enabled', true)->count();
+                            $searchPercent = is_numeric($searchUsage['total']) && (int) $searchUsage['total'] > 0
+                                ? min(100, round(((int) $searchUsage['used'] / (int) $searchUsage['total']) * 100))
+                                : null;
+                            $meetingPercent = is_numeric($meetingUsage['total']) && (int) $meetingUsage['total'] > 0
+                                ? min(100, round(((int) $meetingUsage['used'] / (int) $meetingUsage['total']) * 100))
+                                : null;
+                        @endphp
 
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5">
-                <div class="bg-[#1a1a1a] border border-[#1a1a1a] rounded-2xl px-4 py-3 text-left">
-                    <p class="text-[10px] uppercase tracking-wide text-slate-500">Started</p>
-                    <p class="mt-1 text-sm font-semibold text-white">{{ $subscription->started_at?->format('d M, Y') ?? '—' }}</p>
-                </div>
-                <div class="bg-[#1a1a1a] border border-[#1a1a1a] rounded-2xl px-4 py-3 text-left">
-                    <p class="text-[10px] uppercase tracking-wide text-slate-500">{{ $subscription->cancelled_at ? 'Cancelled' : 'Renews' }}</p>
-                    <p class="mt-1 text-sm font-semibold text-white">{{ ($subscription->cancelled_at ?? $subscription->renews_at)?->format('d M, Y') ?? '—' }}</p>
-                </div>
-                <div class="bg-[#1a1a1a] border border-[#1a1a1a] rounded-2xl px-4 py-3 text-left">
-                    <p class="text-[10px] uppercase tracking-wide text-slate-500">Billing Cycle</p>
-                    <p class="mt-1 text-sm font-semibold text-white">{{ ucfirst($subscription->billing_cycle) }}</p>
-                </div>
-            </div>
+                        <article class="relative overflow-hidden rounded-3xl border p-1 {{ $history['is_current'] ? 'border-emerald-400/35 bg-emerald-400/[0.07] shadow-[0_18px_50px_rgba(16,185,129,0.08)]' : 'border-white/10 bg-white/[0.025]' }}">
+                            <div class="absolute inset-y-6 left-0 w-1 rounded-r-full" style="background:{{ $history['plan']?->color ?? '#DC131C' }};"></div>
+                            <div class="rounded-[20px] bg-[#101010]/95 px-5 py-5 sm:px-6">
+                                <div class="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
+                                    <div class="flex min-w-0 items-start gap-4">
+                                        <span class="flex size-12 shrink-0 items-center justify-center rounded-2xl text-white shadow-lg" style="background:{{ $history['plan']?->color ?? '#DC131C' }};">
+                                            <i class="fa-solid {{ $history['is_current'] ? 'fa-crown' : 'fa-clock-rotate-left' }}"></i>
+                                        </span>
+                                        <div class="min-w-0">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <h4 class="truncate text-lg font-bold text-white">{{ $history['plan']?->name ?? 'Deleted plan' }}</h4>
+                                                @if($history['is_current'])
+                                                    <span class="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-emerald-400">
+                                                        <span class="size-1.5 animate-pulse rounded-full bg-emerald-400"></span> Current plan
+                                                    </span>
+                                                @else
+                                                    <span class="rounded-full border border-slate-600/40 bg-slate-500/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-slate-400">Previous plan</span>
+                                                @endif
+                                            </div>
+                                            <div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
+                                                <span class="font-semibold text-white">${{ number_format((float) $snapshot->price, 2) }} / {{ strtolower($snapshot->billing_cycle) }}</span>
+                                                <span class="hidden size-1 rounded-full bg-slate-600 sm:block"></span>
+                                                <span>Subscription #{{ $snapshot->subscription_id }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
 
-            @if(!empty($subscriptionPlan?->features))
-            <div class="mt-4 flex flex-wrap gap-2">
-                @foreach($subscriptionPlan->features as $feature)
-                <span class="flex items-center gap-2 rounded-full bg-[#1a1a1a] px-3 py-1.5 text-xs text-white">
-                    <i class="fa-regular fa-circle-check text-green-400"></i>
-                    {{ $feature }}
-                </span>
-                @endforeach
+                                    <div class="flex flex-wrap items-center gap-2 lg:justify-end">
+                                        <span class="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style="background:{{ $history['status_color'] }}1a; color:{{ $history['status_color'] }}; border:1px solid {{ $history['status_color'] }}40;">
+                                            <span class="size-1.5 rounded-full" style="background:{{ $history['status_color'] }};"></span>
+                                            {{ $history['status_label'] }}
+                                        </span>
+                                        <span class="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-semibold text-slate-300">
+                                            {{ $snapshot->started_at?->format('d M Y') ?? '—' }} <span class="mx-1 text-slate-600">→</span> {{ $periodEnd?->format('d M Y') ?? 'Ongoing' }}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div class="mt-5 grid gap-3 xl:grid-cols-2">
+                                    @foreach([
+                                        ['usage' => $searchUsage, 'title' => 'PIN Searches', 'icon' => 'fa-magnifying-glass', 'accent' => '#60a5fa', 'percent' => $searchPercent],
+                                        ['usage' => $meetingUsage, 'title' => 'Meetings', 'icon' => 'fa-calendar-check', 'accent' => '#c084fc', 'percent' => $meetingPercent],
+                                    ] as $metric)
+                                        <div class="rounded-2xl border border-white/[0.08] bg-white/[0.035] p-4">
+                                            <div class="flex items-center justify-between gap-3">
+                                                <div class="flex items-center gap-2.5">
+                                                    <span class="flex size-8 items-center justify-center rounded-xl" style="background:{{ $metric['accent'] }}18; color:{{ $metric['accent'] }};">
+                                                        <i class="fa-solid {{ $metric['icon'] }} text-xs"></i>
+                                                    </span>
+                                                    <p class="text-xs font-bold uppercase tracking-wider text-slate-300">{{ $metric['title'] }}</p>
+                                                </div>
+                                                @if($metric['usage']['unlimited'])
+                                                    <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-400">Unlimited access</span>
+                                                @elseif($metric['percent'] !== null)
+                                                    <span class="text-[10px] font-semibold text-slate-500">{{ $metric['percent'] }}% used</span>
+                                                @endif
+                                            </div>
+
+                                            <div class="mt-4 grid grid-cols-3 gap-3">
+                                                <div class="flex flex-col gap-1.5">
+                                                    <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-300">Total</p>
+                                                    <p class="text-xl font-extrabold leading-none text-white">{{ $metric['usage']['total'] }}</p>
+                                                </div>
+                                                <div class="flex flex-col gap-1.5 border-l border-white/[0.12] pl-3.5">
+                                                    <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-300">Used</p>
+                                                    <p class="text-xl font-extrabold leading-none text-amber-400">{{ $metric['usage']['used'] }}</p>
+                                                </div>
+                                                <div class="flex flex-col gap-1.5 border-l border-white/[0.12] pl-3.5">
+                                                    <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-300">Remaining</p>
+                                                    <p class="text-xl font-extrabold leading-none text-emerald-400">{{ $metric['usage']['remaining'] }}</p>
+                                                </div>
+                                            </div>
+
+                                            @if($metric['percent'] !== null)
+                                                <div class="mt-3 h-1.5 overflow-hidden rounded-full bg-white/[0.07]">
+                                                    <div class="h-full rounded-full transition-all" style="width:{{ $metric['percent'] }}%; background:{{ $metric['accent'] }};"></div>
+                                                </div>
+                                            @endif
+                                        </div>
+                                    @endforeach
+                                </div>
+
+                                <div class="mt-3 overflow-x-auto rounded-xl border border-white/[0.08] bg-black/25 px-3 py-2">
+                                    <div class="flex min-w-max flex-nowrap items-center gap-1.5">
+                                        <p class="mr-1 text-[9px] font-bold uppercase tracking-wider text-slate-400">Feature Snapshot</p>
+                                        @foreach($history['features'] as $feature)
+                                            <span class="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[8px] font-medium {{ $feature['enabled'] ? 'border-emerald-400/15 bg-emerald-400/[0.06] text-slate-300' : 'border-white/[0.05] bg-white/[0.02] text-slate-600' }}">
+                                                <i class="fa-solid {{ $feature['enabled'] ? 'fa-check text-emerald-400' : 'fa-minus text-slate-600' }} text-[6px]"></i>
+                                                {{ $feature['label'] }}
+                                            </span>
+                                        @endforeach
+                                        <span class="ml-1.5 whitespace-nowrap border-l border-white/10 pl-2.5 text-[8px] font-semibold text-slate-600">{{ $enabledFeatureCount }}/{{ count($history['features']) }} included</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </article>
+                    @empty
+                        <div class="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-6 py-10 text-center">
+                            <i class="fa-solid fa-receipt text-2xl text-slate-700"></i>
+                            <p class="mt-3 text-sm font-semibold text-slate-400">No subscription history available.</p>
+                        </div>
+                    @endforelse
+                </div>
             </div>
-            @endif
             @else
             <div class="text-left">
                 <p class="font-bold text-white mb-1">Purchased Plan</p>
@@ -197,20 +318,20 @@
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             @forelse($reviews as $review)
             <div class="bg-[#1a1a1a] border border-[#1a1a1a] rounded-2xl">
-                <div class="rounded-2xl shadow-md p-4 max-w-xs text-left">
-                    <div class="flex items-center justify-between mb-2">
-                        <div class="flex items-center gap-2">
-                            <div class="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white" style="background:{{ $review->reviewer?->avatar_color ?? '#6b7280' }};">
+                <div class="rounded-2xl shadow-md p-4 text-left">
+                    <div class="flex items-start justify-between gap-3 mb-2">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <div class="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0" style="background:{{ $review->reviewer?->avatar_color ?? '#6b7280' }};">
                                 {{ $review->reviewer?->initials ?? '?' }}
                             </div>
-                            <div>
-                                <p class="font-semibold text-white text-sm">{{ $review->reviewer?->display_name ?? 'Anonymous' }}</p>
-                                <div class="flex text-yellow-400 text-xs">
+                            <div class="min-w-0">
+                                <p class="font-semibold text-white text-sm truncate">{{ $review->reviewer?->display_name ?? 'Anonymous' }}</p>
+                                <div class="flex text-yellow-400 text-xs mt-0.5">
                                     {{ str_repeat('★', $review->rating) }}{{ str_repeat('☆', 5 - $review->rating) }}
                                 </div>
                             </div>
                         </div>
-                        <span class="text-xs text-white">{{ $review->created_at?->format('M j') }}</span>
+                        <span class="text-[11px] text-slate-400 whitespace-nowrap shrink-0 mt-1">{{ $review->created_at?->format('M j, Y g:i A') }}</span>
                     </div>
                     @if($review->comment)
                     <p class="text-sm text-white leading-relaxed">
@@ -266,7 +387,7 @@
                 </div>
                 <div class="flex-1 min-w-0">
                     <p class="text-sm font-semibold text-white truncate">{{ $otherParty?->display_name ?? $otherParty?->name ?? 'Unknown' }}</p>
-                    <p class="text-xs text-slate-500">{{ $meeting->meeting_date?->format('M j') ?? '—' }} · {{ $meeting->location ?: 'Location unavailable' }}</p>
+                    <p class="text-xs text-slate-500">{{ $meeting->meeting_date?->format('M j, Y g:i A') ?? '—' }} · {{ $meeting->location ?: 'Location unavailable' }}</p>
                 </div>
                 <div class="text-right shrink-0">
                     <span class="text-[11px] font-medium px-2 py-0.5 rounded-full" style="background:{{ $meeting->status_color }}26; color:{{ $meeting->status_color }};">{{ $meeting->status_label }}</span>
@@ -298,6 +419,31 @@
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
+    const copyUidButton = document.getElementById('copy-firebase-uid');
+    if (copyUidButton) {
+        copyUidButton.addEventListener('click', async () => {
+            const value = copyUidButton.dataset.copyValue || '';
+            try {
+                await navigator.clipboard.writeText(value);
+            } catch (e) {
+                const temp = document.createElement('textarea');
+                temp.value = value;
+                document.body.appendChild(temp);
+                temp.select();
+                document.execCommand('copy');
+                document.body.removeChild(temp);
+            }
+            if (window.Swal) {
+                Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Firebase UID copied', showConfirmButton: false, timer: 1500 });
+            } else {
+                const textEl = document.getElementById('firebase-uid-text');
+                const original = textEl.textContent;
+                textEl.textContent = 'Copied!';
+                setTimeout(() => { textEl.textContent = original; }, 1200);
+            }
+        });
+    }
+
     const badgeButton = document.getElementById('verification-badge');
     const badgeName = document.getElementById('verification-level-name');
     const badgePreviewUrl = badgeButton?.dataset.badgePreview;

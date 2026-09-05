@@ -74,11 +74,18 @@
       <span class="ml-auto rounded bg-[#f06548]/15 px-2 py-0.5 text-[11px] font-bold text-[#f06548]">3</span>
     </a>
 
+    <a href="{{ url('/meetings') }}"
+       class="mb-1 flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition
+       {{ request()->is('meetings*') ? 'bg-[#DC131C] text-white' : 'text-[#8f98ad] hover:bg-[#1b2230] hover:text-white' }}">
+      <i class="fa-solid fa-calendar-check w-4 text-center"></i>
+      <span>Meetings</span>
+    </a>
+
     <a href="{{ url('/revenue') }}"
        class="mb-1 flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition
        {{ request()->is('revenue*') ? 'bg-[#DC131C] text-white' : 'text-[#8f98ad] hover:bg-[#1b2230] hover:text-white' }}">
       <i class="fa-solid fa-chart-line w-4 text-center"></i>
-      <span>Revenue</span>
+      <span>Revenue & Reports</span>
     </a>
 
     <a href="{{ url('/terms') }}"

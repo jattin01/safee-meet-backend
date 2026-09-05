@@ -21,7 +21,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('users', function (Blueprint $table) {
-            if (Schema::hasColumn('users', 'safee_pin')) {
+            if (Schema::hasColumn('users', 'safee_pin') && Schema::hasColumn('users', 'safee_id')) {
                 $table->dropUnique('users_safee_pin_unique');
                 $table->dropColumn('safee_pin');
             }

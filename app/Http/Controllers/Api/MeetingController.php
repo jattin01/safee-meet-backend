@@ -5,17 +5,20 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Meeting;
 use App\Models\User;
+use App\Services\PlanEntitlements;
 use App\Services\PushNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class MeetingController extends Controller
 {
-    public function __construct(private readonly PushNotificationService $push)
-    {
-    }
+    public function __construct(
+        private readonly PushNotificationService $push,
+        private readonly PlanEntitlements $entitlements,
+    ) {}
 
     /**
      * GET /api/meetings — Recent Meetings list (Home screen + "See all")
@@ -211,7 +214,17 @@ class MeetingController extends Controller
             ]);
         }
 
+        // Enforce the allowance for snapshot-backed subscriptions. Legacy
+        // accounts without a snapshot keep their previous meeting behaviour.
+        if ($this->entitlements->activeUserSubscription($request->user())
+            && $this->meetingLimitReached($request->user())) {
+            throw ValidationException::withMessages([
+                'meeting_history' => 'You have reached the meeting limit for your current subscription.',
+            ]);
+        }
+
         $endAt = (clone $startAt)->addMinutes(15);
+        $conflictWindowStart = (clone $startAt)->subMinutes(15);
 
         $conflictExists = Meeting::whereIn('status', [
                 'pending_approval',
@@ -225,7 +238,7 @@ class MeetingController extends Controller
                     ->orWhere('guest_user_id', $validated['guest_user_id']);
             })
             ->where('scheduled_start_at', '<', $endAt)
-            ->whereRaw('DATE_ADD(scheduled_start_at, INTERVAL 15 MINUTE) > ?', [$startAt])
+            ->where('scheduled_start_at', '>', $conflictWindowStart)
             ->exists();
 
         if ($conflictExists) {
@@ -234,8 +247,10 @@ class MeetingController extends Controller
             ]);
         }
 
-        $meeting = Meeting::create([
+        $meetingAttributes = [
             'host_user_id' => $hostId,
+            'user_subscription_id' => $this->entitlements
+                ->activeUserSubscription($request->user())?->id,
             'guest_user_id' => $validated['guest_user_id'],
             // "title"/"scheduled_start_at" predate this API and are still
             // required by the table — derive them from the new fields.
@@ -254,7 +269,14 @@ class MeetingController extends Controller
             'type' => $validated['type'] ?? 'other',
             'status' => 'pending_approval',
             'trust_score_snapshot' => $request->user()->trust_score,
-        ]);
+        ];
+
+        // The production meeting schema is a superset of fresh-install test
+        // schemas. Persist the fields available on the current deployment.
+        $meeting = Meeting::create(array_intersect_key(
+            $meetingAttributes,
+            array_flip(Schema::getColumnListing('meetings')),
+        ));
 
         $meeting->load(['host', 'guest']);
         $when = $this->formatWhen($meeting);
@@ -285,6 +307,27 @@ class MeetingController extends Controller
         $time = $meeting->meeting_time ?? '';
 
         return trim("{$date} {$time}");
+    }
+
+    private function meetingLimitReached(User $host): bool
+    {
+        $limit = $this->entitlements->numericLimit($host, 'meeting_history');
+
+        if ($limit === null) {
+            return false;
+        }
+
+        $subscription = $this->entitlements->activeUserSubscription($host);
+        $used = Meeting::withTrashed()
+            ->where('host_user_id', $host->id)
+            ->when(
+                $subscription,
+                fn ($query, $subscription) => $query->where('user_subscription_id', $subscription->id),
+                fn ($query) => $query->where('created_at', '>=', now()->startOfMonth()),
+            )
+            ->count();
+
+        return $used >= $limit;
     }
 
     public function destroy(Request $request, Meeting $meeting): JsonResponse

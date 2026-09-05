@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class SearchHistory extends Model
@@ -12,7 +13,7 @@ class SearchHistory extends Model
     protected $table = 'search_history';
 
     protected $fillable = [
-        'searcher_id', 'found_user_id', 'query', 'method',
+        'searcher_id', 'user_subscription_id', 'found_user_id', 'query', 'method',
     ];
 
     protected function casts(): array
@@ -25,5 +26,10 @@ class SearchHistory extends Model
             'searcher_id' => 'string',
             'found_user_id' => 'string',
         ];
+    }
+
+    public function userSubscription(): BelongsTo
+    {
+        return $this->belongsTo(UserSubscription::class);
     }
 }

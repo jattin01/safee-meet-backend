@@ -32,6 +32,21 @@ class Subscription extends Model
                 $subscription->subscription_id = (string) Str::ulid();
             }
         });
+
+        // Keep the historical snapshot's lifecycle fields aligned regardless
+        // of whether the change came from upgrade, cancellation, webhook, or
+        // the trial-expiry command.
+        static::updated(function (Subscription $subscription) {
+            if (! $subscription->wasChanged(['status', 'renews_at', 'cancelled_at'])) {
+                return;
+            }
+
+            $subscription->userSubscription()->update([
+                'status' => $subscription->status,
+                'renews_at' => $subscription->renews_at,
+                'cancelled_at' => $subscription->cancelled_at,
+            ]);
+        });
     }
 
     protected function casts(): array

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class UserSubscription extends Model
@@ -25,6 +26,7 @@ class UserSubscription extends Model
         'stripe_subscription_id',
 
         'safee_pin_search',
+        'safee_pin_search_remaining',
         'meeting_history',
         'level_1_verification',
         'level_2_clearance',
@@ -41,8 +43,7 @@ class UserSubscription extends Model
         return [
             'price' => 'decimal:2',
             'trial_days' => 'integer',
-            'safee_pin_search' => 'integer',
-            'meeting_history' => 'integer',
+            'safee_pin_search_remaining' => 'integer',
             'level_1_verification' => 'boolean',
             'level_2_clearance' => 'boolean',
             'verified_badge_display' => 'boolean',
@@ -70,5 +71,15 @@ class UserSubscription extends Model
     public function plan(): BelongsTo
     {
         return $this->belongsTo(SubscriptionPlan::class, 'plan_id');
+    }
+
+    public function searches(): HasMany
+    {
+        return $this->hasMany(SearchHistory::class);
+    }
+
+    public function meetings(): HasMany
+    {
+        return $this->hasMany(Meeting::class);
     }
 }

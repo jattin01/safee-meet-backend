@@ -9,8 +9,10 @@ use App\Services\Verification\IdentityVerificationService;
 use App\Services\Verification\UserVerificationLevelService;
 use App\Support\Verification\TrustScoreCalculator;
 use App\Support\Verification\VerificationDocumentPresenter;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -47,9 +49,7 @@ class VerificationController extends Controller
             'rejected' => UserVerification::latestPerUser()->where('status', 'rejected')->count(),
         ];
 
-        $users = User::with('userVerification')
-            ->latest()
-            ->paginate(15, ['*'], 'users_page');
+        $users = $this->registeredUsersQuery()->paginate(15, ['*'], 'users_page');
 
         $documentDetails = $verifications
             ->merge($users->getCollection()->pluck('userVerification')->filter())
@@ -62,6 +62,68 @@ class VerificationController extends Controller
             'users' => $users,
             'documentDetails' => $documentDetails,
         ]);
+    }
+
+    /**
+     * AJAX-driven filtering/pagination for the "Registered Users" table on
+     * the verification page. Filters by name/email/mobile and by the
+     * verification submission date range shown in the "Submitted" column,
+     * reusing the same eager-loaded query as index() to avoid N+1s.
+     */
+    public function usersData(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'search' => ['nullable', 'string', 'max:255'],
+            'start_date' => ['nullable', 'date'],
+            'end_date' => ['nullable', 'date'],
+            'users_page' => ['sometimes', 'integer', 'min:1'],
+        ]);
+
+        $users = $this->registeredUsersQuery($validated)
+            ->paginate(15, ['*'], 'users_page');
+
+        $verifications = $users->getCollection()->pluck('userVerification')->filter();
+
+        $documentDetails = $verifications
+            ->unique('id')
+            ->mapWithKeys(fn (UserVerification $item) => [$item->id => VerificationDocumentPresenter::make($item)]);
+
+        return response()->json([
+            'table' => view('verification.partials.users-table', [
+                'users' => $users,
+            ])->render(),
+            'documentDetails' => $documentDetails,
+            'total' => $users->total(),
+        ]);
+    }
+
+    /**
+     * @param  array{search?: ?string, start_date?: ?string, end_date?: ?string}  $filters
+     */
+    private function registeredUsersQuery(array $filters = []): \Illuminate\Database\Eloquent\Builder
+    {
+        $search = trim((string) ($filters['search'] ?? ''));
+        $startDate = $filters['start_date'] ?? null;
+        $endDate = $filters['end_date'] ?? null;
+
+        return User::query()
+            ->with('userVerification')
+            ->when($search !== '', function ($query) use ($search) {
+                $query->where(function ($inner) use ($search) {
+                    $inner->where('name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhere('phone', 'like', "%{$search}%");
+                });
+            })
+            ->when($startDate || $endDate, function ($query) use ($startDate, $endDate) {
+                $rangeStart = Carbon::parse($startDate ?: $endDate)->startOfDay();
+                $rangeEnd = Carbon::parse($endDate ?: $startDate)->endOfDay();
+
+                $query->whereHas('userVerification', function ($inner) use ($rangeStart, $rangeEnd) {
+                    $inner->whereBetween('submitted_at', [$rangeStart, $rangeEnd]);
+                });
+            })
+            ->latest();
     }
 
     public function show(UserVerification $verification)

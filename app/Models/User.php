@@ -152,6 +152,31 @@ class User extends Authenticatable
         ];
     }
 
+    /**
+     * Shared filtering for the admin users list/export (search, status, plan,
+     * joined date range). Kept as one scope so both endpoints in
+     * UserController stay in sync — see UserController::data()/export().
+     */
+    public function scopeFilter($query, array $filters)
+    {
+        return $query
+            ->when($filters['search'] ?? null, function ($q, $search) {
+                $column = static::safeeColumn();
+
+                $q->where(function ($q) use ($search, $column) {
+                    $q->where('name', 'like', "%{$search}%")
+                        ->orWhere('display_name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhere('phone', 'like', "%{$search}%")
+                        ->orWhere($column, 'like', "%{$search}%");
+                });
+            })
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['plan_id'] ?? null, fn ($q, $planId) => $q->where('plan_id', $planId))
+            ->when($filters['date_from'] ?? null, fn ($q, $date) => $q->whereDate('created_at', '>=', $date))
+            ->when($filters['date_to'] ?? null, fn ($q, $date) => $q->whereDate('created_at', '<=', $date));
+    }
+
     // ── Relationships ──────────────────────────────────────
 
     public function profile()
@@ -294,6 +319,12 @@ class User extends Authenticatable
         return $this->hasMany(Subscription::class);
     }
 
+    /** Historical feature snapshots, one row per subscription/upgrade. */
+    public function userSubscriptions()
+    {
+        return $this->hasMany(UserSubscription::class);
+    }
+
     /** The plan catalog row for this user's current plan (read shortcut). */
     public function plan()
     {
@@ -342,9 +373,9 @@ class User extends Authenticatable
      */
     public static function safeeColumn(): string
     {
-        static $column;
-
-        return $column ??= Schema::hasColumn('users', 'safee_pin') ? 'safee_pin' : 'safee_id';
+        // Do not cache this across requests/tests: migrations may add the
+        // compatibility column after the model is first booted.
+        return Schema::hasColumn('users', 'safee_pin') ? 'safee_pin' : 'safee_id';
     }
 
     /**

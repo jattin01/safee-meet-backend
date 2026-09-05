@@ -17,6 +17,7 @@ class Meeting extends Model
 
     protected $fillable = [
         'reference', 'host_user_id', 'guest_user_id',
+        'user_subscription_id',
         'title', 'scheduled_start_at', 'planned_address', 'planned_latitude', 'planned_longitude',
         'meeting_date', 'meeting_time', 'location', 'latitude', 'longitude',
         'purpose', 'item_or_service', 'type', 'status',
@@ -66,6 +67,11 @@ class Meeting extends Model
     public function getKeyType()
     {
         return static::usesUlidKey() ? 'string' : 'int';
+    }
+
+    public function userSubscription(): BelongsTo
+    {
+        return $this->belongsTo(UserSubscription::class);
     }
 
     private static function usesUlidKey(): bool

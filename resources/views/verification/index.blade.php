@@ -115,85 +115,29 @@
 
         <div style="padding:18px 20px; border-bottom:1px solid #1a1a1a;">
             <h2 style="font-size:15px; font-weight:600; color:#fff; margin:0;">Registered Users</h2>
-            <p style="font-size:12px; color:#6b7280; margin:4px 0 0 0;">{{ number_format($users->total()) }} total users</p>
+            <p style="font-size:12px; color:#6b7280; margin:4px 0 0 0;" id="registered-users-total">{{ number_format($users->total()) }} total users</p>
         </div>
 
-        <div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
-            <table style="width:100%; min-width:750px; border-collapse:collapse; font-size:13px;">
-                <thead>
-                    <tr style="border-bottom:1px solid #1a1a1a; text-align:left;">
-                        <th style="padding:12px 20px; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:#DC131C; font-weight:600;">User</th>
-                        <th style="padding:12px 10px; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:#DC131C; font-weight:600;">Registered On</th>
-                        <th style="padding:12px 10px; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:#DC131C; font-weight:600;">Level</th>
-                        <th style="padding:12px 10px; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:#DC131C; font-weight:600;">KYC Status</th>
-                        <th style="padding:12px 10px; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:#DC131C; font-weight:600;">Submitted</th>
-                        <th style="padding:12px 20px; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:#DC131C; font-weight:600; text-align:right;">Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-
-                    @forelse($users as $registeredUser)
-                        @php
-                            $uv = $registeredUser->userVerification;
-                            $kycColors = [
-                                'not_started' => ['bg' => 'rgba(107,114,128,0.15)', 'text' => '#9ca3af'],
-                                'pending' => ['bg' => 'rgba(234,179,8,0.15)', 'text' => '#facc15'],
-                                'approved' => ['bg' => 'rgba(34,197,94,0.15)', 'text' => '#4ade80'],
-                                'rejected' => ['bg' => 'rgba(239,68,68,0.15)', 'text' => '#f87171'],
-                            ];
-                            $kycColor = $kycColors[$registeredUser->kyc_status] ?? $kycColors['not_started'];
-                        @endphp
-                        <tr style="border-bottom:1px solid #1a1a1a;">
-                            <td style="padding:14px 20px;">
-                                <div style="display:flex; align-items:center; gap:10px;">
-                                    <div style="width:32px; height:32px; border-radius:50%; background:{{ $registeredUser->avatar_color }}; display:flex; align-items:center; justify-content:center; color:#fff; font-size:11px; font-weight:700; flex-shrink:0;">{{ $registeredUser->initials }}</div>
-                                    <div>
-                                        <div style="color:#fff; font-weight:600;">{{ $registeredUser->name ?: $registeredUser->display_name ?: 'Unnamed User' }}</div>
-                                        <div style="color:#6b7280; font-size:11px;">{{ $registeredUser->email ?: $registeredUser->phone ?: '—' }}</div>
-                                    </div>
-                                </div>
-                            </td>
-                            <td style="padding:14px 10px; color:#fff;">{{ $registeredUser->created_at?->format('d M Y') ?? '—' }}</td>
-                            <td style="padding:14px 10px;">
-                                <span style="background:{{ $registeredUser->verification_color }}26; color:{{ $registeredUser->verification_color }}; font-size:11px; padding:3px 10px; border-radius:999px;">{{ $registeredUser->verification_level_label }}</span>
-                            </td>
-                            <td style="padding:14px 10px;">
-                                <span style="background:{{ $kycColor['bg'] }}; color:{{ $kycColor['text'] }}; font-size:11px; padding:3px 10px; border-radius:999px;">{{ ucfirst(str_replace('_', ' ', $registeredUser->kyc_status ?? 'not_started')) }}</span>
-                            </td>
-                            <td style="padding:14px 10px; color:#9ca3af;">
-                                @if($uv?->submitted_at)
-                                    <div style="color:#fff;">{{ $uv->submitted_at->format('d M Y, h:i A') }}</div>
-                                    <div style="font-size:11px; color:#6b7280;">{{ $uv->submitted_at->diffForHumans() }}</div>
-                                @else
-                                    —
-                                @endif
-                            </td>
-                            <td style="padding:14px 20px; text-align:right;">
-                                @if($uv)
-                                    <button type="button" class="document-view-button" data-verification-id="{{ $uv->id }}" title="View documents" aria-label="View documents for {{ $registeredUser->name ?: 'user' }}">
-                                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5c-5.5 0-9.5 5.2-9.7 5.4a2.5 2.5 0 0 0 0 3.2C2.5 13.8 6.5 19 12 19s9.5-5.2 9.7-5.4a2.5 2.5 0 0 0 0-3.2C21.5 10.2 17.5 5 12 5Zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm0-2a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/></svg>
-                                    </button>
-                                    <a href="{{ route('verification.show', $uv) }}" style="background:rgba(220,19,28,0.15); color:#f87171; border:1px solid #DC131C; font-size:11px; padding:5px 14px; border-radius:6px; text-decoration:none; display:inline-block;">View</a>
-                                @else
-                                    <span style="color:#4b5563; font-size:11px;">Not submitted</span>
-                                @endif
-                            </td>
-                        </tr>
-                    @empty
-                        <tr>
-                            <td colspan="6" style="padding:32px 20px; text-align:center; color:#6b7280; font-size:13px;">No registered users found.</td>
-                        </tr>
-                    @endforelse
-
-                </tbody>
-            </table>
-        </div>
-
-        @if($users->hasPages())
-            <div style="padding:16px 20px;">
-                {{ $users->links() }}
+        {{-- Filter bar: search (name/email/mobile) + submission date range, both AJAX-driven --}}
+        <div id="verification-filter-bar" style="padding:16px 20px; border-bottom:1px solid #1a1a1a; display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+            <input
+                type="text"
+                id="verification-search-input"
+                placeholder="Search by name, email or mobile..."
+                style="flex:1 1 240px; min-width:200px; background:#111; border:1px solid #2a2a2a; border-radius:8px; padding:9px 12px; color:#fff; font-size:13px; outline:none;"
+            >
+            <div style="display:flex; align-items:center; gap:6px; background:#111; border:1px solid #2a2a2a; border-radius:8px; padding:6px 10px;">
+                <span style="color:#6b7280; font-size:14px;">📅</span>
+                <input type="date" id="verification-start-date" style="background:transparent; border:none; color:#fff; font-size:13px; outline:none; color-scheme:dark;">
+                <span style="color:#4b5563; font-size:12px;">to</span>
+                <input type="date" id="verification-end-date" style="background:transparent; border:none; color:#fff; font-size:13px; outline:none; color-scheme:dark;">
             </div>
-        @endif
+            <button type="button" id="verification-reset-filters" style="background:#111; border:1px solid #2a2a2a; color:#d1d5db; font-size:12px; padding:9px 16px; border-radius:8px; cursor:pointer;">Reset Filters</button>
+        </div>
+
+        <div id="registered-users-table-wrapper" style="position:relative;">
+            @include('verification.partials.users-table', ['users' => $users])
+        </div>
 
     </div>
 
@@ -249,7 +193,7 @@
         const modal = document.getElementById('verification-documents-modal');
         const grid = document.getElementById('documents-grid');
         const overall = document.getElementById('documents-overall-status');
-        const details = JSON.parse(document.getElementById('verification-document-data').textContent || '{}');
+        let details = JSON.parse(document.getElementById('verification-document-data').textContent || '{}');
         const statusClass = status => `status-${String(status).toLowerCase().replace(/\s+/g, '-')}`;
         const badge = status => {
             const element = document.createElement('span');
@@ -258,7 +202,7 @@
             return element;
         };
 
-        document.querySelectorAll('.document-view-button').forEach(button => button.addEventListener('click', () => {
+        const openDocuments = button => {
             const detail = details[button.dataset.verificationId] || {overallStatus: 'Pending', documents: []};
             grid.replaceChildren();
             overall.replaceChildren(badge(detail.overallStatus));
@@ -309,11 +253,79 @@
 
             modal.hidden = false;
             document.body.style.overflow = 'hidden';
-        }));
+        };
+
+        const bindDocumentButtons = root => {
+            root.querySelectorAll('.document-view-button').forEach(button => button.addEventListener('click', () => openDocuments(button)));
+        };
+
+        bindDocumentButtons(document);
 
         const close = () => { modal.hidden = true; document.body.style.overflow = ''; };
         modal.querySelectorAll('[data-close-documents]').forEach(button => button.addEventListener('click', close));
         document.addEventListener('keydown', event => { if (event.key === 'Escape' && !modal.hidden) close(); });
+
+        // --- Registered Users: AJAX search + submission date-range filter ---
+        const wrapper = document.getElementById('registered-users-table-wrapper');
+        const totalLabel = document.getElementById('registered-users-total');
+        const searchInput = document.getElementById('verification-search-input');
+        const startDateInput = document.getElementById('verification-start-date');
+        const endDateInput = document.getElementById('verification-end-date');
+        const resetButton = document.getElementById('verification-reset-filters');
+        const usersDataUrl = @json(route('verification.users.data'));
+        let debounceTimer = null;
+        let requestToken = 0;
+
+        const fetchUsers = (page = 1) => {
+            const params = new URLSearchParams();
+            if (searchInput.value.trim() !== '') params.set('search', searchInput.value.trim());
+            if (startDateInput.value !== '') params.set('start_date', startDateInput.value);
+            if (endDateInput.value !== '') params.set('end_date', endDateInput.value);
+            if (page > 1) params.set('users_page', String(page));
+
+            const thisRequest = ++requestToken;
+            wrapper.style.opacity = '0.5';
+
+            fetch(`${usersDataUrl}?${params.toString()}`, {
+                headers: {'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json'},
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (thisRequest !== requestToken) return; // stale response, ignore
+                    wrapper.innerHTML = data.table;
+                    wrapper.style.opacity = '';
+                    if (totalLabel) totalLabel.textContent = `${Number(data.total).toLocaleString()} total users`;
+                    details = Object.assign({}, details, data.documentDetails || {});
+                    bindDocumentButtons(wrapper);
+                    bindPaginationLinks();
+                })
+                .catch(() => { wrapper.style.opacity = ''; });
+        };
+
+        const bindPaginationLinks = () => {
+            wrapper.querySelectorAll('.verification-users-pagination a[href]').forEach(link => {
+                link.addEventListener('click', event => {
+                    event.preventDefault();
+                    const url = new URL(link.href, window.location.origin);
+                    const page = parseInt(url.searchParams.get('users_page') || '1', 10);
+                    fetchUsers(page);
+                });
+            });
+        };
+        bindPaginationLinks();
+
+        searchInput.addEventListener('input', () => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => fetchUsers(1), 350);
+        });
+        startDateInput.addEventListener('change', () => fetchUsers(1));
+        endDateInput.addEventListener('change', () => fetchUsers(1));
+        resetButton.addEventListener('click', () => {
+            searchInput.value = '';
+            startDateInput.value = '';
+            endDateInput.value = '';
+            fetchUsers(1);
+        });
     })();
 </script>
 

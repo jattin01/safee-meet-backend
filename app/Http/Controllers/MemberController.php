@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\MemberSearchCount;
 use App\Models\SearchHistory;
 use App\Models\User;
+use App\Models\UserSubscription;
 use App\Services\PlanEntitlements;
 use App\Support\Verification\VerificationLevelResolver;
 use Illuminate\Http\JsonResponse;
@@ -57,18 +58,12 @@ class MemberController extends Controller
             ], 200);
         }
 
-        $alreadySearchedThisMonth = $this->hasSearchedThisMonth($request->user()->id, $user->id);
-
-        if (!$alreadySearchedThisMonth && $this->pinSearchLimitReached($request->user())) {
+        if (! $this->consumeSearchAllowance($request, $user, $pin, 'pin')) {
             return response()->json([
                 'success' => false,
-                'message' => 'You have reached your monthly SAFEE PIN search limit. Upgrade your plan to search more.',
+                'message' => 'You have reached the SAFEE PIN search limit for your current subscription. Upgrade your plan to search more.',
                 'required_feature' => 'pin_search',
             ], 200);
-        }
-
-        if (!$alreadySearchedThisMonth) {
-            $this->logSearch($request, $user, $pin, 'pin');
         }
 
         return response()->json([
@@ -300,10 +295,8 @@ public function searchByQR(Request $request): JsonResponse
         'searcher_id' => $searcherId,
     ]);
 
-    $alreadySearchedThisMonth = $this->hasSearchedThisMonth($searcherId, $user->id);
-
-    if (!$alreadySearchedThisMonth && $this->pinSearchLimitReached($request->user())) {
-        Log::warning('QR search failed: Monthly search limit reached.', [
+    if (! $this->consumeSearchAllowance($request, $user, $code, 'qr')) {
+        Log::warning('QR search failed: Current subscription search limit reached.', [
             'searcher_id' => $searcherId,
             'found_user_id' => $user->id,
             'required_feature' => 'pin_search',
@@ -311,7 +304,7 @@ public function searchByQR(Request $request): JsonResponse
 
         return response()->json([
             'success' => false,
-            'message' => 'You have reached your monthly SAFEE PIN search limit. Upgrade your plan to search more.',
+            'message' => 'You have reached the SAFEE PIN search limit for your current subscription. Upgrade your plan to search more.',
             'required_feature' => 'pin_search',
         ], 200);
     }
@@ -319,10 +312,6 @@ public function searchByQR(Request $request): JsonResponse
     Log::info('QR search limit verified.', [
         'searcher_id' => $searcherId,
     ]);
-
-    if (!$alreadySearchedThisMonth) {
-        $this->logSearch($request, $user, $code, 'qr');
-    }
 
     Log::info('QR search history saved.', [
         'searcher_id' => $searcherId,
@@ -375,65 +364,131 @@ public function searchByQR(Request $request): JsonResponse
     }
 
     /**
-     * Enforces the searcher's plan PIN-search quota, reset per calendar month.
-     * Counts unique members searched this month (via pin or qr), not raw
-     * search_history rows — re-searching an already-searched member does not
-     * consume the quota. The allowance comes from the plan_feature matrix
-     * ('pin_search') via PlanEntitlements:
-     *   - null limit → Unlimited (no enforcement)
-     *   - 0          → no plan / not entitled (blocked)
+     * Atomically consume the current snapshot's remaining balance and record
+     * the search. Re-searching the same member in one subscription is free.
      */
-    private function pinSearchLimitReached(User $searcher): bool
-    {
-        $limit = app(PlanEntitlements::class)->numericLimit($searcher, 'pin_search');
+    private function consumeSearchAllowance(
+        Request $request,
+        User $found,
+        string $query,
+        string $method,
+    ): bool {
+        $searcher = $request->user();
+        $entitlements = app(PlanEntitlements::class);
+        $activeSnapshot = $entitlements->activeUserSubscription($searcher);
 
-        if ($limit === null) {
-            return false; // unlimited
-        }
+        return DB::transaction(function () use (
+            $request,
+            $searcher,
+            $found,
+            $query,
+            $method,
+            $entitlements,
+            $activeSnapshot,
+        ) {
+            if ($activeSnapshot) {
+                $subscription = UserSubscription::whereKey($activeSnapshot->id)
+                    ->whereIn('status', ['trial', 'active'])
+                    ->lockForUpdate()
+                    ->first();
 
-        $usedThisMonth = SearchHistory::where('searcher_id', $searcher->id)
-            ->whereIn('method', ['pin', 'qr'])
-            ->where('created_at', '>=', now()->startOfMonth())
-            ->distinct()
-            ->count('found_user_id');
+                if (! $subscription) {
+                    return false;
+                }
 
-        return $usedThisMonth >= $limit;
+                $alreadySearched = SearchHistory::where('searcher_id', $searcher->id)
+                    ->where('user_subscription_id', $subscription->id)
+                    ->where('found_user_id', $found->id)
+                    ->whereIn('method', ['pin', 'qr'])
+                    ->exists();
+
+                if ($alreadySearched) {
+                    return true;
+                }
+
+                $unlimited = strcasecmp(
+                    trim((string) $subscription->safee_pin_search),
+                    'Unlimited',
+                ) === 0;
+
+                if (! $unlimited) {
+                    if (($subscription->safee_pin_search_remaining ?? 0) <= 0) {
+                        return false;
+                    }
+
+                    $subscription->decrement('safee_pin_search_remaining');
+                }
+
+                $this->logSearch($request, $found, $query, $method, $subscription->id);
+
+                return true;
+            }
+
+            // Compatibility for users whose active plan predates snapshot
+            // records. Their calendar-month quota continues until they renew.
+            $alreadySearched = SearchHistory::where('searcher_id', $searcher->id)
+                ->whereNull('user_subscription_id')
+                ->where('found_user_id', $found->id)
+                ->whereIn('method', ['pin', 'qr'])
+                ->where('created_at', '>=', now()->startOfMonth())
+                ->exists();
+
+            if ($alreadySearched) {
+                return true;
+            }
+
+            $limit = $entitlements->numericLimit($searcher, 'pin_search');
+            $used = SearchHistory::where('searcher_id', $searcher->id)
+                ->whereNull('user_subscription_id')
+                ->whereIn('method', ['pin', 'qr'])
+                ->where('created_at', '>=', now()->startOfMonth())
+                ->distinct()
+                ->count('found_user_id');
+
+            if ($limit !== null && $used >= $limit) {
+                return false;
+            }
+
+            $this->logSearch($request, $found, $query, $method, null);
+
+            return true;
+        });
     }
 
-    /**
-     * Whether $searcherId has already searched $foundUserId (via pin or qr)
-     * during the current calendar month.
-     */
-    private function hasSearchedThisMonth(int|string $searcherId, int|string $foundUserId): bool
-    {
-        return SearchHistory::where('searcher_id', $searcherId)
-            ->where('found_user_id', $foundUserId)
-            ->whereIn('method', ['pin', 'qr'])
-            ->where('created_at', '>=', now()->startOfMonth())
-            ->exists();
-    }
-
-    private function logSearch(Request $request, User $found, string $query, string $method): void
-    {
+    private function logSearch(
+        Request $request,
+        User $found,
+        string $query,
+        string $method,
+        ?int $userSubscriptionId,
+    ): void {
         $searcherId = $request->user()->id;
         $now = now();
 
         SearchHistory::create([
-            'searcher_id'   => $searcherId,
+            'searcher_id' => $searcherId,
+            'user_subscription_id' => $userSubscriptionId,
             'found_user_id' => $found->id,
-            'query'         => $query,
-            'method'        => $method,
+            'query' => $query,
+            'method' => $method,
         ]);
 
-        DB::statement(
-            'INSERT INTO member_search_counts (searcher_id, member_id, search_count, last_searched_at, created_at, updated_at)
-             VALUES (?, ?, 1, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE
-                 search_count = search_count + 1,
-                 last_searched_at = VALUES(last_searched_at),
-                 updated_at = VALUES(updated_at)',
-            [$searcherId, $found->id, $now, $now, $now],
-        );
+        $memberCount = MemberSearchCount::where('searcher_id', $searcherId)
+            ->where('member_id', $found->id)
+            ->lockForUpdate()
+            ->first();
+
+        if ($memberCount) {
+            $memberCount->increment('search_count');
+            $memberCount->update(['last_searched_at' => $now]);
+        } else {
+            MemberSearchCount::create([
+                'searcher_id' => $searcherId,
+                'member_id' => $found->id,
+                'search_count' => 1,
+                'last_searched_at' => $now,
+            ]);
+        }
     }
 
     private function formatMember(User $user): array
