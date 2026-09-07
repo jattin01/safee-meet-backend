@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Services\SubscriptionService;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -142,6 +143,7 @@ class User extends Authenticatable
             'is_meeting_enabled' => 'boolean',
             'is_sos_enabled' => 'boolean',
             'trust_score' => 'integer',
+            'job_title' => 'integer',
             'dob' => 'date',
             'email_verified_at' => 'datetime',
             'phone_verified_at' => 'datetime',
@@ -182,6 +184,11 @@ class User extends Authenticatable
     public function profile()
     {
         return $this->hasOne(UserProfile::class);
+    }
+
+    public function jobTitleCatalog(): BelongsTo
+    {
+        return $this->belongsTo(JobTitle::class, 'job_title');
     }
 
     public function devices()
@@ -503,7 +510,7 @@ class User extends Authenticatable
     public function getAccountTypeLabelAttribute(): string
     {
         if ($this->job_title) {
-            return $this->job_title;
+            return $this->jobTitleCatalog?->name ?? 'Unknown job title';
         }
 
         return match ($this->account_type) {

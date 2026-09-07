@@ -167,7 +167,7 @@
                 <div class="text-left">
                     <p class="font-bold text-white mb-1">Job Title</p>
                     <p id="job-title-message" class="text-xs text-slate-500">
-                        Current: <span id="job-title-current" class="font-semibold text-white">{{ $currentJobTitle->name ?? $user->job_title ?? '—' }}</span>
+                        Current: <span id="job-title-current" class="font-semibold text-white">{{ $currentJobTitle->name ?? '—' }}</span>
                         @if($user->job_title && !$currentJobTitle)
                             <span class="ml-1 text-amber-400">(not in Job Titles list)</span>
                         @endif

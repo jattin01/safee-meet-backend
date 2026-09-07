@@ -69,17 +69,7 @@ class JobTitleController extends Controller
     public function update(UpdateJobTitleRequest $request, JobTitle $jobTitle): JsonResponse
     {
         $validated = $request->validated();
-        $oldNormalizedName = $jobTitle->normalized_name;
-        $renamedUsers = 0;
-
-        DB::transaction(function () use ($validated, $jobTitle, $oldNormalizedName, &$renamedUsers): void {
-            if ($oldNormalizedName !== $validated['normalized_name']) {
-                $renamedUsers = User::query()
-                    ->whereNotNull('job_title')
-                    ->whereRaw('LOWER(TRIM(job_title)) = ?', [$oldNormalizedName])
-                    ->update(['job_title' => $validated['name']]);
-            }
-
+        DB::transaction(function () use ($validated, $jobTitle): void {
             $jobTitle->update([
                 'name' => $validated['name'],
                 'normalized_name' => $validated['normalized_name'],
@@ -88,13 +78,8 @@ class JobTitleController extends Controller
             ]);
         });
 
-        $message = 'Job title updated successfully.';
-        if ($renamedUsers > 0) {
-            $message .= " {$renamedUsers} user assignment(s) were updated safely.";
-        }
-
         return response()->json([
-            'message' => $message,
+            'message' => 'Job title updated successfully.',
             'data' => $this->serialize($jobTitle->refresh()),
         ]);
     }
@@ -150,12 +135,9 @@ class JobTitleController extends Controller
 
         $paginator = JobTitle::query()
             ->withUsersCount()
-            ->when($filters['search'] ?? null, fn (Builder $query, string $search) =>
-                $query->where('name', 'like', '%'.trim($search).'%'))
-            ->when(($filters['status'] ?? null) === 'active', fn (Builder $query) =>
-                $query->where('is_active', true))
-            ->when(($filters['status'] ?? null) === 'inactive', fn (Builder $query) =>
-                $query->where('is_active', false))
+            ->when($filters['search'] ?? null, fn (Builder $query, string $search) => $query->where('name', 'like', '%'.trim($search).'%'))
+            ->when(($filters['status'] ?? null) === 'active', fn (Builder $query) => $query->where('is_active', true))
+            ->when(($filters['status'] ?? null) === 'inactive', fn (Builder $query) => $query->where('is_active', false))
             ->orderBy($sortColumn, $direction)
             ->orderBy('id')
             ->paginate($filters['per_page'] ?? 10)

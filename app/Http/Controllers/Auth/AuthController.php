@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Auth;
 
+use App\Contracts\Auth\AuthVerificationProvider;
 use App\Exceptions\Auth\AuthException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\CheckUserExistsRequest;
@@ -26,14 +27,14 @@ use Throwable;
 
 /**
  * AuthController - Handles two authentication flows:
- * 
+ *
  * ═══════════════════════════════════════════════════════════════════════════════
  * FLOW 1: EMAIL/SOCIAL AUTHENTICATION (Google, Apple, Email)
  * ═══════════════════════════════════════════════════════════════════════════════
  * Single API call - Direct login with Firebase token verification
- * 
+ *
  * Endpoint: POST /api/v1/auth/login
- * 
+ *
  * Request Body:
  * {
  *   "provider": "google|apple|email",
@@ -44,7 +45,7 @@ use Throwable;
  *   "companyName": "Company Inc",  // optional, only for employer accounts
  *   "consentAccepted": true
  * }
- * 
+ *
  * Response:
  * {
  *   "success": true,
@@ -56,20 +57,20 @@ use Throwable;
  *     "isNewUser": true|false
  *   }
  * }
- * 
+ *
  * ═══════════════════════════════════════════════════════════════════════════════
  * FLOW 2: PHONE AUTHENTICATION (3-Step Process with Telesign OTP)
  * ═══════════════════════════════════════════════════════════════════════════════
- * 
+ *
  * Step 1: Send OTP
  * ────────────────
  * Endpoint: POST /api/v1/auth/send-otp
- * 
+ *
  * Request:
  * {
  *   "phone": "+919812374311"
  * }
- * 
+ *
  * Response:
  * {
  *   "success": true,
@@ -80,17 +81,17 @@ use Throwable;
  *     "dev_otp": "695347"  // only in local environment
  *   }
  * }
- * 
+ *
  * Step 2: Verify OTP
  * ──────────────────
  * Endpoint: POST /api/v1/auth/verify-otp
- * 
+ *
  * Request:
  * {
  *   "phone": "+919812374311",
  *   "otp": "695347"
  * }
- * 
+ *
  * Response:
  * {
  *   "success": true,
@@ -100,11 +101,11 @@ use Throwable;
  *     "verified": true
  *   }
  * }
- * 
+ *
  * Step 3: Register/Login
  * ──────────────────────
  * Endpoint: POST /api/v1/auth/register
- * 
+ *
  * Request (Employer):
  * {
  *   "phone": "+919812374311",
@@ -115,7 +116,7 @@ use Throwable;
  *   "companyName": "Acme Pvt Ltd",
  *   "consentAccepted": true
  * }
- * 
+ *
  * Request (Normal User):
  * {
  *   "phone": "+919812374311",
@@ -125,7 +126,7 @@ use Throwable;
  *   "accountType": "normal",
  *   "consentAccepted": true
  * }
- * 
+ *
  * Response (New User - 201):
  * {
  *   "success": true,
@@ -137,7 +138,7 @@ use Throwable;
  *     "isNewUser": true
  *   }
  * }
- * 
+ *
  * Response (Existing User - 200):
  * {
  *   "success": true,
@@ -149,7 +150,7 @@ use Throwable;
  *     "isNewUser": false
  *   }
  * }
- * 
+ *
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 class AuthController extends Controller
@@ -159,15 +160,31 @@ class AuthController extends Controller
     public function register(RegisterRequest $request, AuthService $authService): JsonResponse
     {
         try {
-            $result = $authService->register($request->validated());
+            $payload = $request->validated();
+
+            if ($request->filled('jobTitleId')) {
+                $jobTitle = JobTitle::active()->find($request->integer('jobTitleId'));
+
+                if (! $jobTitle) {
+                    return response()->json([
+                        'success' => false,
+                        'code' => 'INVALID_JOB_TITLE',
+                        'message' => 'Please select a valid job title.',
+                    ], 422);
+                }
+
+                $payload['job_title'] = $jobTitle->id;
+            }
+
+            $result = $authService->register($payload);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Registration successful.',
-                'data'    => [
-                    'accessToken'  => $result['accessToken'],
+                'data' => [
+                    'accessToken' => $result['accessToken'],
                     'refreshToken' => $result['refreshToken'],
-                    'user'         => new UserResource($result['user']),
+                    'user' => new UserResource($result['user']),
                     'isRegistered' => true,
                 ],
             ], 201);
@@ -175,6 +192,7 @@ class AuthController extends Controller
             throw $e;
         } catch (Throwable $e) {
             Log::error('Registration error', ['error' => $e->getMessage()]);
+
             return $this->serverError();
         }
     }
@@ -189,16 +207,17 @@ class AuthController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Login successful.',
-                'data'    => [
-                    'accessToken'  => $result['accessToken'],
+                'data' => [
+                    'accessToken' => $result['accessToken'],
                     'refreshToken' => $result['refreshToken'],
-                    'user'         => new UserResource($result['user']),
+                    'user' => new UserResource($result['user']),
                 ],
             ]);
         } catch (AuthException $e) {
             throw $e;
         } catch (Throwable $e) {
             Log::error('Login error', ['error' => $e->getMessage()]);
+
             return $this->serverError();
         }
     }
@@ -221,7 +240,7 @@ class AuthController extends Controller
     {
         return response()->json([
             'success' => true,
-            'data'    => ['user' => new UserResource($request->user())],
+            'data' => ['user' => new UserResource($request->user())],
         ]);
     }
 
@@ -237,7 +256,7 @@ class AuthController extends Controller
 
         return response()->json([
             'success' => true,
-            'data'    => ['exists' => $exists],
+            'data' => ['exists' => $exists],
         ]);
     }
 
@@ -246,18 +265,18 @@ class AuthController extends Controller
     public function verifyPhone(Request $request): JsonResponse
     {
         $request->validate([
-            'phone'         => ['required', 'string'],
+            'phone' => ['required', 'string'],
             'providerToken' => ['required', 'string'],
         ]);
 
         try {
-            $identity = app(\App\Contracts\Auth\AuthVerificationProvider::class)
+            $identity = app(AuthVerificationProvider::class)
                 ->verifyPhone($request->phone, $request->providerToken);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Phone verified.',
-                'data'    => ['providerUid' => $identity->providerUid, 'phone' => $identity->phone],
+                'data' => ['providerUid' => $identity->providerUid, 'phone' => $identity->phone],
             ]);
         } catch (AuthException $e) {
             throw $e;
@@ -272,9 +291,9 @@ class AuthController extends Controller
     {
         $request->validate(['email' => ['required', 'email']]);
 
-        $email   = strtolower(trim($request->email));
-        $otp     = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-        $cacheKey = 'email_otp_' . hash('sha256', $email);
+        $email = strtolower(trim($request->email));
+        $otp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        $cacheKey = 'email_otp_'.hash('sha256', $email);
 
         Cache::put($cacheKey, $otp, now()->addMinutes(10));
 
@@ -283,8 +302,8 @@ class AuthController extends Controller
 
         $response = [
             'success' => true,
-            'message' => 'OTP sent to ' . $email,
-            'data'    => ['email' => $email],
+            'message' => 'OTP sent to '.$email,
+            'data' => ['email' => $email],
         ];
 
         // Return OTP in response only in local dev — remove before production
@@ -301,17 +320,17 @@ class AuthController extends Controller
     {
         $request->validate([
             'email' => ['required', 'email'],
-            'otp'   => ['required', 'string', 'size:6'],
+            'otp' => ['required', 'string', 'size:6'],
         ]);
 
-        $email    = strtolower(trim($request->email));
-        $cacheKey = 'email_otp_' . hash('sha256', $email);
-        $stored   = Cache::get($cacheKey);
+        $email = strtolower(trim($request->email));
+        $cacheKey = 'email_otp_'.hash('sha256', $email);
+        $stored = Cache::get($cacheKey);
 
-        if (!$stored || $stored !== $request->otp) {
+        if (! $stored || $stored !== $request->otp) {
             return response()->json([
                 'success' => false,
-                'code'    => 'INVALID_OTP',
+                'code' => 'INVALID_OTP',
                 'message' => 'Invalid or expired OTP. Please try again.',
             ], 422);
         }
@@ -321,7 +340,7 @@ class AuthController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Email verified successfully.',
-            'data'    => ['email' => $email, 'emailVerified' => true],
+            'data' => ['email' => $email, 'emailVerified' => true],
         ]);
     }
 
@@ -330,18 +349,18 @@ class AuthController extends Controller
     public function verifyEmail(Request $request): JsonResponse
     {
         $request->validate([
-            'email'         => ['required', 'email'],
+            'email' => ['required', 'email'],
             'providerToken' => ['required', 'string'],
         ]);
 
         try {
-            $identity = app(\App\Contracts\Auth\AuthVerificationProvider::class)
+            $identity = app(AuthVerificationProvider::class)
                 ->verifyEmail($request->email, $request->providerToken);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Email verified.',
-                'data'    => ['providerUid' => $identity->providerUid, 'email' => $identity->email],
+                'data' => ['providerUid' => $identity->providerUid, 'email' => $identity->email],
             ]);
         } catch (AuthException $e) {
             throw $e;
@@ -355,22 +374,22 @@ class AuthController extends Controller
     public function socialValidate(Request $request): JsonResponse
     {
         $request->validate([
-            'provider'      => ['required', 'string', 'in:google,apple'],
+            'provider' => ['required', 'string', 'in:google,apple'],
             'providerToken' => ['required', 'string'],
         ]);
 
         try {
-            $identity = app(\App\Contracts\Auth\AuthVerificationProvider::class)
+            $identity = app(AuthVerificationProvider::class)
                 ->validateToken($request->provider, $request->providerToken);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Social token validated.',
-                'data'    => [
+                'data' => [
                     'providerUid' => $identity->providerUid,
-                    'email'       => $identity->email,
-                    'name'        => $identity->name,
-                    'provider'    => $identity->provider,
+                    'email' => $identity->email,
+                    'name' => $identity->name,
+                    'provider' => $identity->provider,
                 ],
             ]);
         } catch (AuthException $e) {
@@ -381,19 +400,19 @@ class AuthController extends Controller
     }
 
     // ── POST /api/v1/auth/phone-otp/send ─────────────────────────────────────
-    
-  public function sendPhoneOtp(Request $request): JsonResponse
+
+    public function sendPhoneOtp(Request $request): JsonResponse
     {
         $request->validate([
             'phone' => [
                 'required',
                 'string',
-                'regex:/^\+?[1-9]\d{7,14}$/'
+                'regex:/^\+?[1-9]\d{7,14}$/',
             ],
             'name' => [
                 'nullable',
                 'string',
-                'max:150'
+                'max:150',
             ],
         ]);
 
@@ -434,7 +453,7 @@ class AuthController extends Controller
             '+918882354145',
             '+919198720108',
             '17322075598',
-            
+
         ], true);
 
         /*
@@ -452,7 +471,7 @@ class AuthController extends Controller
                 STR_PAD_LEFT
             );
 
-        $cacheKey = 'phone_otp_' . hash('sha256', $phone);
+        $cacheKey = 'phone_otp_'.hash('sha256', $phone);
 
         /*
         |--------------------------------------------------------------------------
@@ -484,7 +503,7 @@ class AuthController extends Controller
         |
         */
 
-        if (!$isTestPhone) {
+        if (! $isTestPhone) {
 
             $smsSent = app(TelesignSmsService::class)->sendOtp($phone, $otp);
 
@@ -520,7 +539,7 @@ class AuthController extends Controller
         |--------------------------------------------------------------------------
         */
 
-        if (!$smsSent && !app()->environment('local')) {
+        if (! $smsSent && ! app()->environment('local')) {
 
             return response()->json([
                 'success' => false,
@@ -537,7 +556,7 @@ class AuthController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'OTP sent successfully to ' . $phone,
+            'message' => 'OTP sent successfully to '.$phone,
             'data' => $data,
         ]);
     }
@@ -572,24 +591,24 @@ class AuthController extends Controller
 
     // ── POST /api/v1/auth/verify-otp ──────────────────────────────────────────
     // Step 2: Verify OTP only (does not register/login user)
-    
+
     public function verifyPhoneOtpOnly(Request $request): JsonResponse
     {
         $request->validate([
             'phone' => ['required', 'string', 'regex:/^\+?[1-9]\d{7,14}$/'],
-            'otp'   => ['required', 'string', 'size:6'],
-            'name'  => ['nullable', 'string', 'max:150'],
+            'otp' => ['required', 'string', 'size:6'],
+            'name' => ['nullable', 'string', 'max:150'],
         ]);
 
         $phone = $this->normalizePhone($request->input('phone'));
         $name = $request->input('name');
-        $cacheKey = 'phone_otp_' . hash('sha256', $phone);
+        $cacheKey = 'phone_otp_'.hash('sha256', $phone);
         $stored = Cache::get($cacheKey);
 
-        if (!$stored || !is_array($stored)) {
+        if (! $stored || ! is_array($stored)) {
             return response()->json([
                 'success' => false,
-                'code'    => 'INVALID_OTP',
+                'code' => 'INVALID_OTP',
                 'message' => 'Invalid or expired OTP. Please try again.',
             ], 422);
         }
@@ -597,9 +616,10 @@ class AuthController extends Controller
         // Check max attempts
         if (($stored['attempts'] ?? 0) >= 5) {
             Cache::forget($cacheKey);
+
             return response()->json([
                 'success' => false,
-                'code'    => 'TOO_MANY_ATTEMPTS',
+                'code' => 'TOO_MANY_ATTEMPTS',
                 'message' => 'Too many incorrect attempts. Please request a new OTP.',
             ], 429);
         }
@@ -611,7 +631,7 @@ class AuthController extends Controller
 
             return response()->json([
                 'success' => false,
-                'code'    => 'INVALID_OTP',
+                'code' => 'INVALID_OTP',
                 'message' => 'The OTP is incorrect.',
                 'attempts_remaining' => 5 - $stored['attempts'],
             ], 422);
@@ -633,7 +653,7 @@ class AuthController extends Controller
                 $firebaseUser = $firebaseAuth->getUserByPhoneNumber($phone);
                 $firebaseUid = $firebaseUser->uid;
                 $firebaseUserFound = true;
-                
+
                 Log::info('Firebase user found by phone', [
                     'phone' => $phone,
                     'firebase_uid' => $firebaseUid,
@@ -641,16 +661,16 @@ class AuthController extends Controller
             } catch (UserNotFound) {
                 // Create new Firebase user
                 $displayName = $name ?? $stored['name'] ?? 'SAFEE User';
-                
+
                 $userData = [
                     'phoneNumber' => $phone,
                     'displayName' => $displayName,
                 ];
-                
+
                 $firebaseUser = $firebaseAuth->createUser($userData);
                 $firebaseUid = $firebaseUser->uid;
                 $firebaseUserFound = false;
-                
+
                 Log::info('Firebase user created', [
                     'phone' => $phone,
                     'display_name' => $displayName,
@@ -700,23 +720,23 @@ class AuthController extends Controller
     public function verifyPhoneOtp(Request $request, AuthService $authService): JsonResponse
     {
         $request->validate([
-            'phone'           => ['required', 'string', 'regex:/^\+?[1-9]\d{7,14}$/'],
-            'otp'             => ['required', 'string', 'size:6'],
-            'name'            => ['nullable', 'string', 'max:150'],
-            'email'           => ['nullable', 'email', 'max:200'],
+            'phone' => ['required', 'string', 'regex:/^\+?[1-9]\d{7,14}$/'],
+            'otp' => ['required', 'string', 'size:6'],
+            'name' => ['nullable', 'string', 'max:150'],
+            'email' => ['nullable', 'email', 'max:200'],
             'consentAccepted' => ['nullable', 'boolean'],
-            'accountType'     => ['nullable', 'string', 'in:normal,employer'],
-            'companyName'     => ['nullable', 'string', 'max:255'],
+            'accountType' => ['nullable', 'string', 'in:normal,employer'],
+            'companyName' => ['nullable', 'string', 'max:255'],
         ]);
 
         $phone = $this->normalizePhone($request->input('phone'));
-        $cacheKey = 'phone_otp_' . hash('sha256', $phone);
+        $cacheKey = 'phone_otp_'.hash('sha256', $phone);
         $stored = Cache::get($cacheKey);
 
-        if (!$stored || !is_array($stored)) {
+        if (! $stored || ! is_array($stored)) {
             return response()->json([
                 'success' => false,
-                'code'    => 'INVALID_OTP',
+                'code' => 'INVALID_OTP',
                 'message' => 'Invalid or expired OTP. Please try again.',
             ], 422);
         }
@@ -724,9 +744,10 @@ class AuthController extends Controller
         // Check max attempts
         if (($stored['attempts'] ?? 0) >= 5) {
             Cache::forget($cacheKey);
+
             return response()->json([
                 'success' => false,
-                'code'    => 'TOO_MANY_ATTEMPTS',
+                'code' => 'TOO_MANY_ATTEMPTS',
                 'message' => 'Too many incorrect attempts. Please request a new OTP.',
             ], 429);
         }
@@ -738,7 +759,7 @@ class AuthController extends Controller
 
             return response()->json([
                 'success' => false,
-                'code'    => 'INVALID_OTP',
+                'code' => 'INVALID_OTP',
                 'message' => 'The OTP is incorrect.',
                 'attempts_remaining' => 5 - $stored['attempts'],
             ], 422);
@@ -754,30 +775,30 @@ class AuthController extends Controller
             // Login existing user
             $this->assertAccountIsActive($user);
             $user->update(['last_login_at' => now(), 'last_seen_at' => now()]);
-            
+
             $user->tokens()->delete();
             $token = $user->createToken('auth_token')->plainTextToken;
 
             return response()->json([
                 'success' => true,
                 'message' => 'Login successful.',
-                'data'    => [
-                    'accessToken'  => $token,
+                'data' => [
+                    'accessToken' => $token,
                     'refreshToken' => null,
-                    'user'         => new UserResource($user),
-                    'isNewUser'    => false,
+                    'user' => new UserResource($user),
+                    'isNewUser' => false,
                 ],
             ]);
         } else {
             // Register new user
             $payload = [
-                'name'            => $request->input('name') ?? $stored['name'] ?? 'SAFEE User',
-                'email'           => $request->input('email'),
-                'phone'           => $phone,
-                'provider'        => 'phone',
+                'name' => $request->input('name') ?? $stored['name'] ?? 'SAFEE User',
+                'email' => $request->input('email'),
+                'phone' => $phone,
+                'provider' => 'phone',
                 'consentAccepted' => $request->input('consentAccepted', true),
-                'accountType'     => $request->input('accountType', 'normal'),
-                'companyName'     => $request->input('companyName'),
+                'accountType' => $request->input('accountType', 'normal'),
+                'companyName' => $request->input('companyName'),
             ];
 
             $result = $authService->register($payload);
@@ -785,11 +806,11 @@ class AuthController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Registration successful.',
-                'data'    => [
-                    'accessToken'  => $result['accessToken'],
+                'data' => [
+                    'accessToken' => $result['accessToken'],
                     'refreshToken' => $result['refreshToken'],
-                    'user'         => new UserResource($result['user']),
-                    'isNewUser'    => true,
+                    'user' => new UserResource($result['user']),
+                    'isNewUser' => true,
                 ],
             ], 201);
         }
@@ -797,7 +818,7 @@ class AuthController extends Controller
 
     // ── POST /api/v1/auth/login ───────────────────────────────────────────────
     // Phone login after OTP verification
-    
+
     public function loginUser(Request $request): JsonResponse
     {
         $request->validate([
@@ -805,7 +826,7 @@ class AuthController extends Controller
         ]);
 
         $phone = $this->normalizePhone($request->input('phone'));
-        $cacheKey = 'phone_otp_' . hash('sha256', $phone);
+        $cacheKey = 'phone_otp_'.hash('sha256', $phone);
         $stored = Cache::get($cacheKey);
 
         // Debug logging
@@ -813,18 +834,19 @@ class AuthController extends Controller
             'phone' => $phone,
             'cache_key' => $cacheKey,
             'stored_data' => $stored,
-            'has_stored' => !is_null($stored),
+            'has_stored' => ! is_null($stored),
             'is_array' => is_array($stored),
             'verified' => $stored['verified'] ?? 'not_set',
             'verified_at' => $stored['verified_at'] ?? 'not_set',
         ]);
 
         // Check if OTP was verified
-        if (!$stored || !is_array($stored) || !($stored['verified'] ?? false)) {
+        if (! $stored || ! is_array($stored) || ! ($stored['verified'] ?? false)) {
             Log::warning('OTP not verified for login', ['phone' => $phone, 'stored' => $stored]);
+
             return response()->json([
                 'success' => false,
-                'code'    => 'OTP_NOT_VERIFIED',
+                'code' => 'OTP_NOT_VERIFIED',
                 'message' => 'Please verify OTP first before login.',
             ], 422);
         }
@@ -833,12 +855,13 @@ class AuthController extends Controller
         $verifiedAt = $stored['verified_at'] ?? 0;
         $currentTime = now()->timestamp;
         $timeDiff = $currentTime - $verifiedAt;
-        
+
         if ($verifiedAt === 0 || $timeDiff > 600) {
             Cache::forget($cacheKey);
+
             return response()->json([
                 'success' => false,
-                'code'    => 'VERIFICATION_EXPIRED',
+                'code' => 'VERIFICATION_EXPIRED',
                 'message' => 'OTP verification expired. Please verify again.',
             ], 422);
         }
@@ -846,16 +869,16 @@ class AuthController extends Controller
         try {
             // Check if user exists
             $user = User::where('phone', $phone)->first();
-            
-            if (!$user) {
+
+            if (! $user) {
                 // User not registered
                 Cache::forget($cacheKey);
-                
+
                 return response()->json([
                     'success' => false,
-                    'code'    => 'USER_NOT_REGISTERED',
+                    'code' => 'USER_NOT_REGISTERED',
                     'message' => 'This phone number is not registered. Please use the register endpoint.',
-                    'data'    => [
+                    'data' => [
                         'phone' => $phone,
                         'registered' => false,
                     ],
@@ -865,7 +888,7 @@ class AuthController extends Controller
             // User exists, perform login
             $this->assertAccountIsActive($user);
             $user->update(['last_login_at' => now(), 'last_seen_at' => now()]);
-            
+
             $user->tokens()->delete();
             $token = $user->createToken('auth_token')->plainTextToken;
 
@@ -874,24 +897,25 @@ class AuthController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Login successful.',
-                'data'    => [
-                    'accessToken'  => $token,
+                'data' => [
+                    'accessToken' => $token,
                     'refreshToken' => null,
-                    'user'         => new UserResource($user),
-                    'isNewUser'    => false,
+                    'user' => new UserResource($user),
+                    'isNewUser' => false,
                 ],
             ]);
         } catch (AuthException $e) {
             throw $e;
         } catch (Throwable $e) {
             Log::error('Login error', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+
             return $this->serverError();
         }
     }
 
     // ── POST /api/v1/auth/register ────────────────────────────────────────────
     // Step 3: Complete registration after OTP verification
-    
+
     public function registerUser(Request $request, AuthService $authService): JsonResponse
     {
         $request->merge([
@@ -904,14 +928,14 @@ class AuthController extends Controller
         ]);
 
         $validator = Validator::make($request->all(), [
-            'phone'           => ['required', 'string', 'regex:/^\+?[1-9]\d{7,14}$/', 'unique:users,phone'],
-            'provider'        => ['required', 'string', 'in:phone,email'],
-            'name'            => ['required', 'string', 'max:150'],
-            'email'           => ['nullable', 'email', 'max:200', 'unique:users,email'],
-            'accountType'     => ['required', 'string', 'in:normal,employer'],
-            'companyName'     => ['nullable', 'string', 'max:255'],
+            'phone' => ['required', 'string', 'regex:/^\+?[1-9]\d{7,14}$/', 'unique:users,phone'],
+            'provider' => ['required', 'string', 'in:phone,email'],
+            'name' => ['required', 'string', 'max:150'],
+            'email' => ['nullable', 'email', 'max:200', 'unique:users,email'],
+            'accountType' => ['required', 'string', 'in:normal,employer'],
+            'companyName' => ['nullable', 'string', 'max:255'],
             'consentAccepted' => ['required', 'boolean'],
-            'job_title'       => ['nullable', 'string', 'max:100'],
+            'jobTitleId' => ['nullable', 'integer', 'exists:job_titles,id'],
         ], [
             'phone.unique' => 'An account already exists for this mobile number. Please log in.',
             'email.unique' => 'This email address is already registered with another account.',
@@ -925,48 +949,45 @@ class AuthController extends Controller
             ], 422);
         }
 
-        // Resolve job_title against the active job_titles catalog (trim + case-
-        // insensitive match), same rule used everywhere else a user gets a job
-        // title assigned. Stores the canonical name in users.job_title.
-        $jobTitleName = null;
-        if ($request->filled('job_title')) {
-            $jobTitle = JobTitle::active()
-                ->whereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower(trim($request->input('job_title')))])
-                ->first();
+        // Only active catalog entries may be assigned. users.job_title stores
+        // the job_titles.id value supplied by the client as jobTitleId.
+        $jobTitleId = null;
+        if ($request->filled('jobTitleId')) {
+            $jobTitle = JobTitle::active()->find($request->integer('jobTitleId'));
 
             if (! $jobTitle) {
                 return response()->json([
                     'success' => false,
-                    'code'    => 'INVALID_JOB_TITLE',
+                    'code' => 'INVALID_JOB_TITLE',
                     'message' => 'Please select a valid job title.',
                 ], 422);
             }
 
-            $jobTitleName = $jobTitle->name;
+            $jobTitleId = $jobTitle->id;
         }
 
         $phone = $this->normalizePhone($request->input('phone'));
-        $cacheKey = 'phone_otp_' . hash('sha256', $phone);
+        $cacheKey = 'phone_otp_'.hash('sha256', $phone);
         $stored = Cache::get($cacheKey);
-       
 
         // Debug logging
         Log::info('Register attempt', [
             'phone' => $phone,
             'cache_key' => $cacheKey,
             'stored_data' => $stored,
-            'has_stored' => !is_null($stored),
+            'has_stored' => ! is_null($stored),
             'is_array' => is_array($stored),
             'verified' => $stored['verified'] ?? 'not_set',
             'verified_at' => $stored['verified_at'] ?? 'not_set',
         ]);
 
         // Check if OTP was verified
-        if (!$stored || !is_array($stored) || !($stored['verified'] ?? false)) {
+        if (! $stored || ! is_array($stored) || ! ($stored['verified'] ?? false)) {
             Log::warning('OTP not verified', ['phone' => $phone, 'stored' => $stored]);
+
             return response()->json([
                 'success' => false,
-                'code'    => 'OTP_NOT_VERIFIED',
+                'code' => 'OTP_NOT_VERIFIED',
                 'message' => 'Please verify OTP first before registration.',
             ], 422);
         }
@@ -975,14 +996,14 @@ class AuthController extends Controller
         $verifiedAt = $stored['verified_at'] ?? 0;
         $currentTime = now()->timestamp;
         $timeDiff = $currentTime - $verifiedAt;
-        
+
         Log::info('Verification time check', [
             'verified_at' => $verifiedAt,
             'current_time' => $currentTime,
             'time_diff' => $timeDiff,
             'is_expired' => $timeDiff > 600,
         ]);
-        
+
         if ($verifiedAt === 0 || $timeDiff > 600) {
             Cache::forget($cacheKey);
             Log::warning('Verification expired', [
@@ -990,9 +1011,10 @@ class AuthController extends Controller
                 'verified_at' => $verifiedAt,
                 'time_diff' => $timeDiff,
             ]);
+
             return response()->json([
                 'success' => false,
-                'code'    => 'VERIFICATION_EXPIRED',
+                'code' => 'VERIFICATION_EXPIRED',
                 'message' => 'OTP verification expired. Please verify again.',
             ], 422);
         }
@@ -1000,16 +1022,16 @@ class AuthController extends Controller
         try {
             // Check if user already exists by phone
             $existingUser = User::where('phone', $phone)->first();
-            
+
             if ($existingUser) {
                 // User already registered with this phone - return error
                 Cache::forget($cacheKey);
-                
+
                 return response()->json([
                     'success' => false,
-                    'code'    => 'PHONE_ALREADY_REGISTERED',
+                    'code' => 'PHONE_ALREADY_REGISTERED',
                     'message' => 'This phone number is already registered. Please use the login endpoint instead.',
-                    'data'    => [
+                    'data' => [
                         'phone' => $phone,
                         'registered' => true,
                     ],
@@ -1020,16 +1042,16 @@ class AuthController extends Controller
             $email = $request->input('email');
             if ($email) {
                 $emailExists = User::where('email', strtolower(trim($email)))->first();
-                
+
                 if ($emailExists) {
                     // Email already registered - return error
                     Cache::forget($cacheKey);
-                    
+
                     return response()->json([
                         'success' => false,
-                        'code'    => 'EMAIL_ALREADY_REGISTERED',
+                        'code' => 'EMAIL_ALREADY_REGISTERED',
                         'message' => 'This email address is already registered with another account.',
-                        'data'    => [
+                        'data' => [
                             'email' => $email,
                             'registered' => true,
                         ],
@@ -1038,28 +1060,28 @@ class AuthController extends Controller
             }
 
             // Register new user (phone registration - no providerToken)
-            $user = DB::transaction(function () use ($request, $phone, $stored, $jobTitleName) {
+            $user = DB::transaction(function () use ($request, $phone, $stored, $jobTitleId) {
                 $userData = [
-                    'safee_id'        => $this->generateSafeeId(),
-                    'account_type'    => $request->input('accountType'),
-                    'auth_provider'   => 'phone',
-                    'name'            => $request->input('name'),
-                    'display_name'    => $request->input('name'),
-                    'email'           => $request->input('email') ? strtolower(trim($request->input('email'))) : null,
-                    'phone'           => $phone,
-                    'job_title'       => $jobTitleName,
+                    'safee_id' => $this->generateSafeeId(),
+                    'account_type' => $request->input('accountType'),
+                    'auth_provider' => 'phone',
+                    'name' => $request->input('name'),
+                    'display_name' => $request->input('name'),
+                    'email' => $request->input('email') ? strtolower(trim($request->input('email'))) : null,
+                    'phone' => $phone,
+                    'job_title' => $jobTitleId,
                     'phone_verified_at' => now(),
-                    'firebase_uid'    => $stored['firebase_uid'] ?? null,
-                    'status'          => 'active',
+                    'firebase_uid' => $stored['firebase_uid'] ?? null,
+                    'status' => 'active',
                     'onboarding_status' => 'completed',
-                    'kyc_status'      => 'not_started',
-                    'trust_score'     => 0,
-                    'trust_tier'      => 'low',
+                    'kyc_status' => 'not_started',
+                    'trust_score' => 0,
+                    'trust_tier' => 'low',
                     'is_chat_enabled' => true,
                     'is_meeting_enabled' => true,
-                    'is_sos_enabled'  => true,
-                    'created_at'      => now(),
-                    'updated_at'      => now(),
+                    'is_sos_enabled' => true,
+                    'created_at' => now(),
+                    'updated_at' => now(),
                 ];
 
                 // Add company_name only if provided
@@ -1092,17 +1114,18 @@ class AuthController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Registration successful.',
-                'data'    => [
-                    'accessToken'  => $token,
+                'data' => [
+                    'accessToken' => $token,
                     'refreshToken' => null,
-                    'user'         => new UserResource($user),
-                    'isNewUser'    => true,
+                    'user' => new UserResource($user),
+                    'isNewUser' => true,
                 ],
             ], 201);
         } catch (AuthException $e) {
             throw $e;
         } catch (Throwable $e) {
             Log::error('Registration error', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+
             return $this->serverError();
         }
     }
@@ -1113,32 +1136,32 @@ class AuthController extends Controller
     public function unifiedAuth(Request $request, AuthService $authService): JsonResponse
     {
         $request->validate([
-            'name'            => ['nullable', 'string', 'max:150'],
-            'email'           => ['nullable', 'email', 'max:200'],
-            'phone'           => ['nullable', 'string', 'regex:/^\+?[1-9]\d{7,14}$/'],
-            'provider'        => ['required', 'string', 'in:email,phone,google,apple'],
-            'providerToken'   => ['required', 'string'],
+            'name' => ['nullable', 'string', 'max:150'],
+            'email' => ['nullable', 'email', 'max:200'],
+            'phone' => ['nullable', 'string', 'regex:/^\+?[1-9]\d{7,14}$/'],
+            'provider' => ['required', 'string', 'in:email,phone,google,apple'],
+            'providerToken' => ['required', 'string'],
             'consentAccepted' => ['nullable', 'boolean'],
-            'accountType'     => ['nullable', 'string', 'in:normal,employer'],
-            'companyName'     => ['nullable', 'string', 'max:255'],
-            'jobTitleId'      => ['nullable', 'integer', 'exists:job_titles,id'],
+            'accountType' => ['nullable', 'string', 'in:normal,employer'],
+            'companyName' => ['nullable', 'string', 'max:255'],
+            'jobTitleId' => ['nullable', 'integer', 'exists:job_titles,id'],
         ]);
 
         // Resolve jobTitleId against the active job_titles catalog — only an
         // active title can be assigned, same rule as everywhere else.
-        $jobTitleName = null;
+        $jobTitleId = null;
         if ($request->filled('jobTitleId')) {
             $jobTitle = JobTitle::active()->find($request->input('jobTitleId'));
 
             if (! $jobTitle) {
                 return response()->json([
                     'success' => false,
-                    'code'    => 'INVALID_JOB_TITLE',
+                    'code' => 'INVALID_JOB_TITLE',
                     'message' => 'Please select a valid job title.',
                 ], 422);
             }
 
-            $jobTitleName = $jobTitle->name;
+            $jobTitleId = $jobTitle->id;
         }
 
         try {
@@ -1146,7 +1169,7 @@ class AuthController extends Controller
             $providerToken = $request->input('providerToken');
 
             // Verify the provider token (works for email, google, apple, phone)
-            $identity = app(\App\Contracts\Auth\AuthVerificationProvider::class)
+            $identity = app(AuthVerificationProvider::class)
                 ->validateToken($provider, $providerToken);
 
             // Check if user exists
@@ -1160,8 +1183,8 @@ class AuthController extends Controller
                 // Apply jobTitleId (resolved above against active job_titles) on
                 // login too — not just first registration — so it doesn't
                 // silently get dropped just because the account already existed.
-                if ($jobTitleName !== null) {
-                    $loginUpdates['job_title'] = $jobTitleName;
+                if ($jobTitleId !== null) {
+                    $loginUpdates['job_title'] = $jobTitleId;
                 }
                 $user->update($loginUpdates);
 
@@ -1172,25 +1195,25 @@ class AuthController extends Controller
                 return response()->json([
                     'success' => true,
                     'message' => 'Login successful.',
-                    'data'    => [
-                        'accessToken'  => $token,
+                    'data' => [
+                        'accessToken' => $token,
                         'refreshToken' => null,
-                        'user'         => new UserResource($user),
-                        'isNewUser'    => false,
+                        'user' => new UserResource($user),
+                        'isNewUser' => false,
                     ],
                 ]);
             } else {
                 // Register new user
                 $payload = [
-                    'name'            => $request->input('name') ?? $identity->name ?? 'SAFEE User',
-                    'email'           => $request->input('email') ?? $identity->email,
-                    'phone'           => $request->input('phone') ?? $identity->phone,
-                    'provider'        => $provider,
-                    'providerToken'   => $providerToken,
+                    'name' => $request->input('name') ?? $identity->name ?? 'SAFEE User',
+                    'email' => $request->input('email') ?? $identity->email,
+                    'phone' => $request->input('phone') ?? $identity->phone,
+                    'provider' => $provider,
+                    'providerToken' => $providerToken,
                     'consentAccepted' => $request->input('consentAccepted', true),
-                    'accountType'     => $request->input('accountType', 'normal'),
-                    'companyName'     => $request->input('companyName'),
-                    'job_title'       => $jobTitleName,
+                    'accountType' => $request->input('accountType', 'normal'),
+                    'companyName' => $request->input('companyName'),
+                    'job_title' => $jobTitleId,
                 ];
 
                 $result = $authService->register($payload);
@@ -1198,11 +1221,11 @@ class AuthController extends Controller
                 return response()->json([
                     'success' => true,
                     'message' => 'Registration successful.',
-                    'data'    => [
-                        'accessToken'  => $result['accessToken'],
+                    'data' => [
+                        'accessToken' => $result['accessToken'],
                         'refreshToken' => $result['refreshToken'],
-                        'user'         => new UserResource($result['user']),
-                        'isNewUser'    => true,
+                        'user' => new UserResource($result['user']),
+                        'isNewUser' => true,
                     ],
                 ], 201);
             }
@@ -1210,6 +1233,7 @@ class AuthController extends Controller
             throw $e;
         } catch (Throwable $e) {
             Log::error('Unified auth error', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+
             return $this->serverError();
         }
     }
@@ -1220,20 +1244,26 @@ class AuthController extends Controller
         // Try to find by provider UID first
         if ($identity->providerUid) {
             $user = User::where('firebase_uid', $identity->providerUid)->first();
-            if ($user) return $user;
+            if ($user) {
+                return $user;
+            }
         }
 
         // Try to find by email
         if ($identity->email) {
             $user = User::where('email', strtolower(trim($identity->email)))->first();
-            if ($user) return $user;
+            if ($user) {
+                return $user;
+            }
         }
 
         // Try to find by phone (from identity or request)
         $phone = $identity->phone ?? $phoneFromRequest;
         if ($phone) {
             $user = User::where('phone', $phone)->first();
-            if ($user) return $user;
+            if ($user) {
+                return $user;
+            }
         }
 
         return null;
@@ -1243,11 +1273,11 @@ class AuthController extends Controller
     private function assertAccountIsActive(User $user): void
     {
         match ($user->status) {
-            'blocked'   => throw AuthException::accountBlocked(),
+            'blocked' => throw AuthException::accountBlocked(),
             'suspended' => throw AuthException::accountBlocked(),
-            'deleted'   => throw AuthException::userNotRegistered(),
-            'pending'   => throw AuthException::accountInactive(),
-            default     => null,
+            'deleted' => throw AuthException::userNotRegistered(),
+            'pending' => throw AuthException::accountInactive(),
+            default => null,
         };
     }
 
@@ -1255,7 +1285,7 @@ class AuthController extends Controller
     {
         return response()->json([
             'success' => false,
-            'code'    => 'SERVER_ERROR',
+            'code' => 'SERVER_ERROR',
             'message' => 'An unexpected error occurred. Please try again.',
         ], 500);
     }
@@ -1264,7 +1294,8 @@ class AuthController extends Controller
     {
         $phone = trim($phone);
         $prefix = str_starts_with($phone, '+') ? '+' : '';
-        return $prefix . preg_replace('/\D+/', '', $phone);
+
+        return $prefix.preg_replace('/\D+/', '', $phone);
     }
 
     private function generateSafeeId(): string
@@ -1272,7 +1303,7 @@ class AuthController extends Controller
         $column = User::safeeColumn();
 
         do {
-            $id = 'SM' . strtoupper(Str::random(8));
+            $id = 'SM'.strtoupper(Str::random(8));
         } while (User::where($column, $id)->exists());
 
         return $id;

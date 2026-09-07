@@ -34,16 +34,14 @@ class JobTitle extends Model
         return $query->addSelect([
             'users_count' => User::query()
                 ->selectRaw('COUNT(*)')
-                ->whereNotNull('job_title')
-                ->whereRaw('LOWER(TRIM(users.job_title)) = job_titles.normalized_name'),
+                ->whereColumn('users.job_title', 'job_titles.id'),
         ]);
     }
 
     public function usersCount(): int
     {
         return User::query()
-            ->whereNotNull('job_title')
-            ->whereRaw('LOWER(TRIM(job_title)) = ?', [$this->normalized_name])
+            ->where('job_title', $this->id)
             ->count();
     }
 }
