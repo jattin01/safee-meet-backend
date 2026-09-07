@@ -8,6 +8,7 @@ use App\Http\Requests\Auth\CheckUserExistsRequest;
 use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Resources\Auth\UserResource;
+use App\Models\JobTitle;
 use App\Models\User;
 use App\Services\Auth\AuthService;
 use App\Services\SafetyPointService;
@@ -910,6 +911,7 @@ class AuthController extends Controller
             'accountType'     => ['required', 'string', 'in:normal,employer'],
             'companyName'     => ['nullable', 'string', 'max:255'],
             'consentAccepted' => ['required', 'boolean'],
+            'job_title'       => ['nullable', 'string', 'max:100'],
         ], [
             'phone.unique' => 'An account already exists for this mobile number. Please log in.',
             'email.unique' => 'This email address is already registered with another account.',
@@ -921,6 +923,26 @@ class AuthController extends Controller
                 'message' => $validator->errors()->first(),
                 'errors' => $validator->errors(),
             ], 422);
+        }
+
+        // Resolve job_title against the active job_titles catalog (trim + case-
+        // insensitive match), same rule used everywhere else a user gets a job
+        // title assigned. Stores the canonical name in users.job_title.
+        $jobTitleName = null;
+        if ($request->filled('job_title')) {
+            $jobTitle = JobTitle::active()
+                ->whereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower(trim($request->input('job_title')))])
+                ->first();
+
+            if (! $jobTitle) {
+                return response()->json([
+                    'success' => false,
+                    'code'    => 'INVALID_JOB_TITLE',
+                    'message' => 'Please select a valid job title.',
+                ], 422);
+            }
+
+            $jobTitleName = $jobTitle->name;
         }
 
         $phone = $this->normalizePhone($request->input('phone'));
@@ -1016,7 +1038,7 @@ class AuthController extends Controller
             }
 
             // Register new user (phone registration - no providerToken)
-            $user = DB::transaction(function () use ($request, $phone, $stored) {
+            $user = DB::transaction(function () use ($request, $phone, $stored, $jobTitleName) {
                 $userData = [
                     'safee_id'        => $this->generateSafeeId(),
                     'account_type'    => $request->input('accountType'),
@@ -1025,6 +1047,7 @@ class AuthController extends Controller
                     'display_name'    => $request->input('name'),
                     'email'           => $request->input('email') ? strtolower(trim($request->input('email'))) : null,
                     'phone'           => $phone,
+                    'job_title'       => $jobTitleName,
                     'phone_verified_at' => now(),
                     'firebase_uid'    => $stored['firebase_uid'] ?? null,
                     'status'          => 'active',

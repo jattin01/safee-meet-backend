@@ -163,6 +163,31 @@
         </div>
 
         <div class="mt-5 bg-[#000] rounded-3xl p-5 text-white shadow-lg">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div class="text-left">
+                    <p class="font-bold text-white mb-1">Job Title</p>
+                    <p id="job-title-message" class="text-xs text-slate-500">
+                        Current: <span id="job-title-current" class="font-semibold text-white">{{ $currentJobTitle->name ?? $user->job_title ?? '—' }}</span>
+                        @if($user->job_title && !$currentJobTitle)
+                            <span class="ml-1 text-amber-400">(not in Job Titles list)</span>
+                        @endif
+                    </p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <select id="job-title-select" class="rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]">
+                        <option value="">— None —</option>
+                        @foreach($activeJobTitles as $activeJobTitle)
+                            <option value="{{ $activeJobTitle->id }}" @selected($currentJobTitle && $currentJobTitle->id === $activeJobTitle->id)>{{ $activeJobTitle->name }}</option>
+                        @endforeach
+                    </select>
+                    <button type="button" id="job-title-save" class="rounded-lg bg-[#DC131C] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#b50f16]">
+                        Save
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-5 bg-[#000] rounded-3xl p-5 text-white shadow-lg">
             @if($subscription)
             <div class="text-left">
                 <div class="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#181818] via-[#101010] to-[#080808] px-5 py-5 sm:px-6">
@@ -563,6 +588,52 @@ document.addEventListener('DOMContentLoaded', () => {
             select.value = initialStatus;
         } finally {
             saveButton.disabled = false;
+        }
+    });
+
+    const jobTitleSelect = document.getElementById('job-title-select');
+    const jobTitleSave = document.getElementById('job-title-save');
+    const jobTitleCurrent = document.getElementById('job-title-current');
+    let initialJobTitleId = jobTitleSelect.value;
+
+    jobTitleSave.addEventListener('click', async () => {
+        const newJobTitleId = jobTitleSelect.value;
+
+        if (newJobTitleId === initialJobTitleId) return;
+
+        jobTitleSave.disabled = true;
+        try {
+            const response = await fetch(window.location.pathname + '/job-title', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json',
+                    'X-CSRF-TOKEN': csrfToken,
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: JSON.stringify({ job_title_id: newJobTitleId || null }),
+            });
+
+            const result = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error(result.message || 'Unable to update job title.');
+            }
+
+            jobTitleCurrent.textContent = result.job_title || '—';
+            initialJobTitleId = newJobTitleId;
+        } catch (error) {
+            await Swal.fire({
+                title: 'Job title update failed',
+                text: error.message,
+                icon: 'error',
+                confirmButtonColor: '#DC131C',
+                background: '#1a1a1a',
+                color: '#ffffff',
+            });
+            jobTitleSelect.value = initialJobTitleId;
+        } finally {
+            jobTitleSave.disabled = false;
         }
     });
 });

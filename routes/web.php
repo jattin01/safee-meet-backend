@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\AdminController;
 use App\Http\Controllers\Admin\BackgroundCheckController;
 use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\Admin\FeatureController;
+use App\Http\Controllers\Admin\JobTitleController;
 use App\Http\Controllers\Admin\VerificationLevelController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\IncidentsController;
@@ -76,6 +77,16 @@ Route::middleware('auth:admin')->group(function () {
     Route::put('/features/{feature}', [FeatureController::class, 'update'])->name('features.update');
     Route::delete('/features/{feature}', [FeatureController::class, 'destroy'])->name('features.destroy');
 
+    Route::middleware('role:admin,super_admin')->group(function (): void {
+        Route::get('/job-titles', [JobTitleController::class, 'index'])->name('job-titles.index');
+        Route::get('/job-titles/data', [JobTitleController::class, 'data'])->name('job-titles.data');
+        Route::post('/job-titles', [JobTitleController::class, 'store'])->name('job-titles.store');
+        Route::get('/job-titles/{jobTitle}', [JobTitleController::class, 'show'])->name('job-titles.show');
+        Route::put('/job-titles/{jobTitle}', [JobTitleController::class, 'update'])->name('job-titles.update');
+        Route::patch('/job-titles/{jobTitle}/status', [JobTitleController::class, 'updateStatus'])->name('job-titles.status.update');
+        Route::delete('/job-titles/{jobTitle}', [JobTitleController::class, 'destroy'])->name('job-titles.destroy');
+    });
+
     Route::get('/verification-levels', [VerificationLevelController::class, 'index'])->name('verification-levels.index');
     Route::post('/verification-levels', [VerificationLevelController::class, 'store'])->name('verification-levels.store');
     Route::put('/verification-levels/{verificationLevel}', [VerificationLevelController::class, 'update'])->name('verification-levels.update');
@@ -90,6 +101,7 @@ Route::middleware('auth:admin')->group(function () {
     Route::get('/revenue/export', [RevenueController::class, 'export'])->name('revenue.export');
     Route::get('/terms', [TermsController::class, 'index'])->name('terms.index');
     Route::get('/users/{id}', [UserController::class, 'show'])->name('users.show');
+    Route::post('/users/{id}/job-title', [UserController::class, 'updateJobTitle'])->name('users.job-title.update');
     Route::post('/users/{id}/status', [UserController::class, 'updateStatus'])->name('users.status.update');
     Route::post('/users/{user}/background-check/recheck', [BackgroundCheckController::class, 'recheck'])
         ->name('users.background-check.recheck');

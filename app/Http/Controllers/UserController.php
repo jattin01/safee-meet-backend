@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Meeting;
 use App\Models\MeetingReview;
+use App\Models\JobTitle;
 use App\Models\SearchHistory;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
@@ -154,6 +155,33 @@ class UserController extends Controller
             ]);
         }
 
+        public function updateJobTitle(Request $request, $id): JsonResponse
+        {
+            $validated = $request->validate([
+                'job_title_id' => ['nullable', 'integer', 'exists:job_titles,id'],
+            ]);
+
+            $user = User::findOrFail($id);
+            $jobTitle = null;
+
+            if (! empty($validated['job_title_id'])) {
+                $jobTitle = JobTitle::active()->find($validated['job_title_id']);
+
+                if (! $jobTitle) {
+                    return response()->json([
+                        'message' => 'Only an active job title can be assigned to a user.',
+                    ], 422);
+                }
+            }
+
+            $user->update(['job_title' => $jobTitle?->name]);
+
+            return response()->json([
+                'message' => 'User job title updated successfully.',
+                'job_title' => $user->job_title,
+            ]);
+        }
+
         public function show($id)
         {
             $user = User::with(['emergencyContacts', 'verificationLevel', 'userVerification'])->findOrFail($id);
@@ -188,6 +216,12 @@ class UserController extends Controller
 
             return view('users.show', [
                 'user' => $user,
+                'activeJobTitles' => JobTitle::active()->orderBy('name')->get(['id', 'name']),
+                'currentJobTitle' => $user->job_title
+                    ? JobTitle::query()
+                        ->whereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower(trim($user->job_title))])
+                        ->first(['id', 'name', 'is_active'])
+                    : null,
                 'meetings' => $meetings,
                 'meetingsCount' => $meetingsCount,
                 'reviews' => $reviews,

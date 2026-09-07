@@ -17,11 +17,18 @@
    
 
     <a href="{{ route($dashboardRoute) }}"
-       class="mb-1 flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition
-       {{ request()->is('dashboard') || request()->is('super-admin/dashboard') ? 'bg-[#DC131C] text-white' : 'text-[#8f98ad] hover:bg-[#1b2230] hover:text-white' }}">
-      <i class="fa-solid fa-gauge-high w-4 text-center"></i>
-      <span>Dashboard</span>
+        class="mb-1 flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition
+        {{ request()->is('dashboard') || request()->is('super-admin/dashboard') ? 'bg-[#DC131C] text-white' : 'text-[#8f98ad] hover:bg-[#1b2230] hover:text-white' }}">
+        <i class="fa-solid fa-gauge-high w-4 text-center"></i>
+        <span>Dashboard</span>
     </a>
+
+      <a href="{{ route('admins.index') }}"
+        class="mb-1 flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition
+        {{ request()->is('admins*') ? 'bg-[#DC131C] text-white' : 'text-[#8f98ad] hover:bg-[#1b2230] hover:text-white' }}">
+        <i class="fa-solid fa-user-shield w-4 text-center"></i>
+        <span>Admins</span>
+      </a>
 
     <a href="{{ url('/users') }}"
        class="mb-1 flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition
@@ -30,11 +37,11 @@
       <span>Users</span>
     </a>
 
-    <a href="{{ route('admins.index') }}"
+    <a href="{{ route('job-titles.index') }}"
        class="mb-1 flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition
-       {{ request()->is('admins*') ? 'bg-[#DC131C] text-white' : 'text-[#8f98ad] hover:bg-[#1b2230] hover:text-white' }}">
-      <i class="fa-solid fa-user-shield w-4 text-center"></i>
-      <span>Admins</span>
+       {{ request()->is('job-titles*') ? 'bg-[#DC131C] text-white' : 'text-[#8f98ad] hover:bg-[#1b2230] hover:text-white' }}">
+      <i class="fa-solid fa-briefcase w-4 text-center"></i>
+      <span>Job Titles</span>
     </a>
 
     <a href="{{ url('/verification') }}"

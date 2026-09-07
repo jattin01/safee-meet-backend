@@ -19,6 +19,7 @@ class UserResource extends JsonResource
             'avatarUrl'          => $this->avatar_url,
             'profileImage'       => $verification?->face_id_image ? asset('storage/'.$verification->face_id_image) : null,
             'accountType'        => $this->account_type,
+            'jobTitle'           => $this->job_title,
             'authProvider'       => $this->auth_provider,
             'status'             => $this->status,
             'onboardingStatus'   => $this->onboarding_status,

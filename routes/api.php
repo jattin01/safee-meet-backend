@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\BackgroundCheckController;
 use App\Http\Controllers\Api\DeviceController;
 use App\Http\Controllers\Api\DiditVerificationController;
 use App\Http\Controllers\Api\EmergencyContactController;
+use App\Http\Controllers\Api\JobTitleController;
 use App\Http\Controllers\Api\MeetingController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\ProfileController;
@@ -68,6 +69,9 @@ Route::prefix('v1')->group(function (): void {
         Route::post('login-or-register', [PhoneOtpAuthController::class, 'loginOrRegister'])->middleware('throttle:5,1');
         Route::post('verify-otp', [PhoneOtpAuthController::class, 'verifyOtp'])->middleware('throttle:10,1');
     });
+
+    // ── Public catalog: active job titles for the registration/profile dropdown ──
+    Route::get('job-titles', [JobTitleController::class, 'index']);
 
     //  Route::post('webhook', [WebhookController::class, 'webhook']);
 
