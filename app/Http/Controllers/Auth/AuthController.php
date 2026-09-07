@@ -1121,7 +1121,25 @@ class AuthController extends Controller
             'consentAccepted' => ['nullable', 'boolean'],
             'accountType'     => ['nullable', 'string', 'in:normal,employer'],
             'companyName'     => ['nullable', 'string', 'max:255'],
+            'jobTitleId'      => ['nullable', 'integer', 'exists:job_titles,id'],
         ]);
+
+        // Resolve jobTitleId against the active job_titles catalog — only an
+        // active title can be assigned, same rule as everywhere else.
+        $jobTitleName = null;
+        if ($request->filled('jobTitleId')) {
+            $jobTitle = JobTitle::active()->find($request->input('jobTitleId'));
+
+            if (! $jobTitle) {
+                return response()->json([
+                    'success' => false,
+                    'code'    => 'INVALID_JOB_TITLE',
+                    'message' => 'Please select a valid job title.',
+                ], 422);
+            }
+
+            $jobTitleName = $jobTitle->name;
+        }
 
         try {
             $provider = $request->input('provider');
@@ -1164,6 +1182,7 @@ class AuthController extends Controller
                     'consentAccepted' => $request->input('consentAccepted', true),
                     'accountType'     => $request->input('accountType', 'normal'),
                     'companyName'     => $request->input('companyName'),
+                    'job_title'       => $jobTitleName,
                 ];
 
                 $result = $authService->register($payload);

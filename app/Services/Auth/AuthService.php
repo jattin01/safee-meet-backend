@@ -50,6 +50,7 @@ class AuthService
                 // existing rows; no encryption-at-rest at this stage.
                 'email'           => ($payload['email'] ?? $identity->email) ? strtolower(trim($payload['email'] ?? $identity->email)) : null,
                 'phone'           => $identity->phone,
+                'job_title'       => $payload['job_title'] ?? null,
                 'status'          => 'active',
                 'onboarding_status' => 'completed',
                 'kyc_status'      => 'not_started',
