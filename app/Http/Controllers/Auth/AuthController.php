@@ -1155,8 +1155,16 @@ class AuthController extends Controller
             if ($user) {
                 // Login existing user
                 $this->assertAccountIsActive($user);
-                $user->update(['last_login_at' => now(), 'last_seen_at' => now()]);
-                
+
+                $loginUpdates = ['last_login_at' => now(), 'last_seen_at' => now()];
+                // Apply jobTitleId (resolved above against active job_titles) on
+                // login too — not just first registration — so it doesn't
+                // silently get dropped just because the account already existed.
+                if ($jobTitleName !== null) {
+                    $loginUpdates['job_title'] = $jobTitleName;
+                }
+                $user->update($loginUpdates);
+
                 // Issue Sanctum token
                 $user->tokens()->delete(); // single active token per user
                 $token = $user->createToken('auth_token')->plainTextToken;
