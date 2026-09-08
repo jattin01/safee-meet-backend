@@ -1,6 +1,9 @@
 <?php
 
+use App\Models\Admin;
 use App\Models\JobTitle;
+use App\Models\Role;
+use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -78,4 +81,40 @@ it('rejects an inactive jobTitleId during phone registration', function () {
         'consentAccepted' => true,
     ])->assertUnprocessable()
         ->assertJsonPath('code', 'INVALID_JOB_TITLE');
+});
+
+it('shows and filters job titles in the users table', function () {
+    $role = Role::create([
+        'name' => 'Admin',
+        'slug' => 'admin',
+        'status' => true,
+    ]);
+    $admin = Admin::create([
+        'role_id' => $role->id,
+        'name' => 'Current Admin',
+        'email' => 'job-title-admin@example.com',
+        'password' => 'password',
+        'status' => true,
+    ]);
+
+    $electrician = JobTitle::query()->where('normalized_name', 'electrician')->firstOrFail();
+    $plumber = JobTitle::query()->where('normalized_name', 'plumber')->firstOrFail();
+
+    User::factory()->create(['job_title' => $electrician->id]);
+    User::factory()->create(['job_title' => $plumber->id]);
+
+    $this->actingAs($admin, 'admin')
+        ->get('/users')
+        ->assertOk()
+        ->assertSee('filter-job-title', false)
+        ->assertSee('Electrician');
+
+    $this->actingAs($admin, 'admin')
+        ->getJson('/users/data?job_title_id='.$electrician->id, [
+            'X-Requested-With' => 'XMLHttpRequest',
+        ])
+        ->assertOk()
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('data.0.job_title_id', $electrician->id)
+        ->assertJsonPath('data.0.job_title', 'Electrician');
 });

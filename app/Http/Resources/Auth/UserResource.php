@@ -21,6 +21,7 @@ class UserResource extends JsonResource
             'accountType' => $this->account_type,
             'jobTitleId' => $this->job_title,
             'jobTitle' => $this->jobTitleCatalog?->name,
+            'companyName' => $this->company_name,
             'authProvider' => $this->auth_provider,
             'status' => $this->status,
             'onboardingStatus' => $this->onboarding_status,

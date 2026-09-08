@@ -509,6 +509,8 @@ public function searchByQR(Request $request): JsonResponse
             'verificationLevelId' => $user->verification_level_id,
             'verificationStatus'  => $verification?->status ?? 'not_submitted',
             'badgeIcon'           => $user->badge_icon_url,
+            'jobTitleId'          => $user->job_title,
+            'companyName'         => $user->company_name,
             'subscriptionPlan'    => 'free',
             'rating'              => 0.0,
             'totalMeetings'       => $user->meetingCount(),

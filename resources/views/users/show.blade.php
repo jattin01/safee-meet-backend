@@ -162,18 +162,36 @@
             </div>
         </div>
 
+        @if($user->account_type === 'employer')
         <div class="mt-5 bg-[#000] rounded-3xl p-5 text-white shadow-lg">
             <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div class="text-left">
-                    <p class="font-bold text-white mb-1">Job Title</p>
-                    <p id="job-title-message" class="text-xs text-slate-500">
-                        Current: <span id="job-title-current" class="font-semibold text-white">{{ $currentJobTitle->name ?? '—' }}</span>
+                <div class="min-w-0 flex-1 text-left">
+                    <p class="font-bold text-white mb-3">Employment Details</p>
+                    <dl class="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                        <div class="rounded-xl border border-[#1f1f1f] bg-[#111] px-3 py-2.5">
+                            <dt class="text-slate-500">Account Type</dt>
+                            <dd class="mt-1 font-semibold text-white">{{ str($user->account_type ?: 'normal')->replace('_', ' ')->title() }}</dd>
+                        </div>
+                        <div class="rounded-xl border border-[#1f1f1f] bg-[#111] px-3 py-2.5">
+                            <dt class="text-slate-500">Company Name</dt>
+                            <dd class="mt-1 break-words font-semibold text-white">{{ $user->company_name ?: 'N/A' }}</dd>
+                        </div>
+                        <div class="rounded-xl border border-[#1f1f1f] bg-[#111] px-3 py-2.5">
+                            <dt class="text-slate-500">Employer Code</dt>
+                            <dd class="mt-1 break-all font-semibold text-white">{{ $user->employer_code ?: 'N/A' }}</dd>
+                        </div>
+                        <div class="rounded-xl border border-[#1f1f1f] bg-[#111] px-3 py-2.5">
+                            <dt class="text-slate-500">Job Title</dt>
+                            <dd id="job-title-current" class="mt-1 font-semibold text-white">{{ $currentJobTitle->name ?? 'N/A' }}</dd>
+                        </div>
+                    </dl>
+                    <p id="job-title-message" class="mt-2 text-xs text-slate-500">
                         @if($user->job_title && !$currentJobTitle)
-                            <span class="ml-1 text-amber-400">(not in Job Titles list)</span>
+                            <span class="text-amber-400">The assigned job title is not in the Job Titles list.</span>
                         @endif
                     </p>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex shrink-0 items-center gap-2 sm:self-end">
                     <select id="job-title-select" class="rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]">
                         <option value="">— None —</option>
                         @foreach($activeJobTitles as $activeJobTitle)
@@ -186,6 +204,7 @@
                 </div>
             </div>
         </div>
+        @endif
 
         <div class="mt-5 bg-[#000] rounded-3xl p-5 text-white shadow-lg">
             @if($subscription)
@@ -594,9 +613,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const jobTitleSelect = document.getElementById('job-title-select');
     const jobTitleSave = document.getElementById('job-title-save');
     const jobTitleCurrent = document.getElementById('job-title-current');
-    let initialJobTitleId = jobTitleSelect.value;
+    let initialJobTitleId = jobTitleSelect?.value;
 
-    jobTitleSave.addEventListener('click', async () => {
+    jobTitleSave?.addEventListener('click', async () => {
         const newJobTitleId = jobTitleSelect.value;
 
         if (newJobTitleId === initialJobTitleId) return;
@@ -620,7 +639,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error(result.message || 'Unable to update job title.');
             }
 
-            jobTitleCurrent.textContent = result.job_title || '—';
+            jobTitleCurrent.textContent = result.job_title || 'N/A';
             initialJobTitleId = newJobTitleId;
         } catch (error) {
             await Swal.fire({

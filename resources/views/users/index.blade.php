@@ -16,7 +16,7 @@
         </a>
     </div>
 
-    {{-- Filter bar: search + status + plan + joined date range, all AJAX-driven --}}
+    {{-- Filter bar: search + status + job title + plan + joined date range, all AJAX-driven --}}
     <div id="user-filter-bar" style="background:#000; border:1px solid #1a1a1a; border-radius:12px; padding:16px 20px; margin-bottom:16px; display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
         <input
             type="text"
@@ -40,6 +40,15 @@
             @endforeach
         </select>
 
+        <select id="filter-job-title" style="background:#111; border:1px solid #2a2a2a; border-radius:8px; padding:9px 12px; color:#fff; font-size:13px; outline:none;">
+            <option value="">All Job Titles</option>
+            @foreach($jobTitles as $jobTitle)
+                <option value="{{ $jobTitle->id }}">
+                    {{ $jobTitle->name }}{{ $jobTitle->is_active ? '' : ' (Inactive)' }}
+                </option>
+            @endforeach
+        </select>
+
         <div style="display:flex; align-items:center; gap:6px; background:#111; border:1px solid #2a2a2a; border-radius:8px; padding:6px 10px;">
             <span style="color:#6b7280; font-size:14px;">📅</span>
             <input type="date" id="filter-date-from" title="Joined from" style="background:transparent; border:none; color:#fff; font-size:13px; outline:none; color-scheme:dark;">
@@ -52,10 +61,11 @@
 
     {{-- Table Wrapper --}}
     <div class="bg-[#000] rounded-xl border border-[#000]" style="overflow-x:auto; -webkit-overflow-scrolling:touch; width:100%;">
-        <table style="min-width:750px; width:100%; border-collapse:collapse; font-size:13px;">
+        <table style="min-width:900px; width:100%; border-collapse:collapse; font-size:13px;">
             <thead>
                 <tr class="border-b border-[#2a2d3e] text-left text-xs uppercase tracking-wide text-red-500 ">
                     <th class="px-5 py-4 font-semibold">User</th>
+                    <th class="px-5 py-4 font-semibold">Job Title</th>
                     <th class="px-5 py-4 font-semibold">Safee Pin</th>
                     <th class="px-5 py-4 font-semibold">Verification</th>
                     <th class="px-5 py-4 font-semibold">Plan</th>
@@ -67,7 +77,7 @@
             </thead>
             <tbody id="user-table-body">
                 <tr>
-                    <td colspan="8" class="px-5 py-8 text-center text-gray-500">Loading...</td>
+                    <td colspan="9" class="px-5 py-8 text-center text-gray-500">Loading...</td>
                 </tr>
             </tbody>
         </table>
@@ -107,6 +117,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const searchInput = document.getElementById('filter-search');
     const statusSelect = document.getElementById('filter-status');
     const planSelect = document.getElementById('filter-plan');
+    const jobTitleSelect = document.getElementById('filter-job-title');
     const dateFromInput = document.getElementById('filter-date-from');
     const dateToInput = document.getElementById('filter-date-to');
     const clearButton = document.getElementById('filter-clear');
@@ -117,6 +128,7 @@ document.addEventListener('DOMContentLoaded', () => {
         search: searchInput.value.trim(),
         status: statusSelect.value,
         plan_id: planSelect.value,
+        job_title_id: jobTitleSelect.value,
         date_from: dateFromInput.value,
         date_to: dateToInput.value,
     });
@@ -166,7 +178,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const renderRows = (users) => {
         if (!users.length) {
-            body.innerHTML = '<tr><td colspan="8" class="px-5 py-4 text-center" style="color:#6b7280;">No users found.</td></tr>';
+            body.innerHTML = '<tr><td colspan="9" class="px-5 py-4 text-center" style="color:#6b7280;">No users found.</td></tr>';
             return;
         }
 
@@ -181,6 +193,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                     </div>
                 </td>
+                <td class="px-5 py-4 text-[#fff] font-medium">${user.job_title ? escapeHtml(user.job_title) : '&mdash;'}</td>
                 <td class="px-5 py-4 text-[#fff] font-medium">${(user.safee_pin ?? user.safee_id)
  ? '#' + escapeHtml(user.safee_pin ?? user.safee_id)   : '—'}</td>
                 <td style="padding:14px 20px;">
@@ -205,7 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const loadPage = async (page) => {
-        body.innerHTML = '<tr><td colspan="8" class="px-5 py-8 text-center text-gray-500">Loading...</td></tr>';
+        body.innerHTML = '<tr><td colspan="9" class="px-5 py-8 text-center text-gray-500">Loading...</td></tr>';
         previous.disabled = true;
         next.disabled = true;
 
@@ -238,7 +251,7 @@ document.addEventListener('DOMContentLoaded', () => {
             previous.disabled = currentPage <= 1;
             next.disabled = currentPage >= lastPage;
         } catch (error) {
-            body.innerHTML = `<tr><td colspan="8" class="px-5 py-8 text-center text-red-400">${escapeHtml(error.message)}</td></tr>`;
+            body.innerHTML = `<tr><td colspan="9" class="px-5 py-8 text-center text-red-400">${escapeHtml(error.message)}</td></tr>`;
             total.textContent = 'Unable to load users';
         }
     };
@@ -254,6 +267,7 @@ document.addEventListener('DOMContentLoaded', () => {
     searchInput.addEventListener('input', debounce(applyFilters, 400));
     statusSelect.addEventListener('change', applyFilters);
     planSelect.addEventListener('change', applyFilters);
+    jobTitleSelect.addEventListener('change', applyFilters);
     dateFromInput.addEventListener('change', applyFilters);
     dateToInput.addEventListener('change', applyFilters);
 
@@ -261,6 +275,7 @@ document.addEventListener('DOMContentLoaded', () => {
         searchInput.value = '';
         statusSelect.value = '';
         planSelect.value = '';
+        jobTitleSelect.value = '';
         dateFromInput.value = '';
         dateToInput.value = '';
         applyFilters();

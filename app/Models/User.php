@@ -175,6 +175,7 @@ class User extends Authenticatable
             })
             ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
             ->when($filters['plan_id'] ?? null, fn ($q, $planId) => $q->where('plan_id', $planId))
+            ->when($filters['job_title_id'] ?? null, fn ($q, $jobTitleId) => $q->where('job_title', $jobTitleId))
             ->when($filters['date_from'] ?? null, fn ($q, $date) => $q->whereDate('created_at', '>=', $date))
             ->when($filters['date_to'] ?? null, fn ($q, $date) => $q->whereDate('created_at', '<=', $date));
     }

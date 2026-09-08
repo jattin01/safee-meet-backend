@@ -20,6 +20,7 @@ class UserController extends Controller
     {
         return view('users.index', [
             'plans' => SubscriptionPlan::query()->orderBy('sort_order')->get(['id', 'name']),
+            'jobTitles' => JobTitle::query()->orderBy('name')->get(['id', 'name', 'is_active']),
         ]);
     }
 
@@ -36,12 +37,13 @@ class UserController extends Controller
             'search' => ['sometimes', 'nullable', 'string', 'max:255'],
             'status' => ['sometimes', 'nullable', 'in:active,inactive,suspended,deleted'],
             'plan_id' => ['sometimes', 'nullable', 'integer'],
+            'job_title_id' => ['sometimes', 'nullable', 'integer', 'exists:job_titles,id'],
             'date_from' => ['sometimes', 'nullable', 'date'],
             'date_to' => ['sometimes', 'nullable', 'date'],
         ]);
 
         $users = User::query()
-            ->with('plan')
+            ->with(['plan', 'jobTitleCatalog:id,name'])
             ->filter($validated)
             ->latest('id')
             ->paginate($validated['per_page'] ?? 10)
@@ -57,6 +59,8 @@ class UserController extends Controller
             'verification_label' => $user->verification_label,
             'verification_color' => $user->verification_color,
             'plan_label' => $user->plan_label,
+            'job_title_id' => $user->job_title,
+            'job_title' => $user->jobTitleCatalog?->name,
             'trust_score' => $user->trust_score !== null ? round($user->trust_score) : null,
             'created_at' => $user->created_at,
             'status' => $user->status,
@@ -79,6 +83,7 @@ class UserController extends Controller
             'search' => ['sometimes', 'nullable', 'string', 'max:255'],
             'status' => ['sometimes', 'nullable', 'in:active,inactive,suspended,deleted'],
             'plan_id' => ['sometimes', 'nullable', 'integer'],
+            'job_title_id' => ['sometimes', 'nullable', 'integer', 'exists:job_titles,id'],
             'date_from' => ['sometimes', 'nullable', 'date'],
             'date_to' => ['sometimes', 'nullable', 'date'],
         ]);
@@ -95,11 +100,11 @@ class UserController extends Controller
 
             fputcsv($handle, [
                 'ID', 'Name', 'Contact', 'Safee Pin', 'Verification',
-                'Plan', 'Trust Score', 'Status', 'Joined At',
+                'Job Title', 'Plan', 'Trust Score', 'Status', 'Joined At',
             ]);
 
             User::query()
-                ->with('plan')
+                ->with(['plan', 'jobTitleCatalog:id,name'])
                 ->filter($validated)
                 ->chunkById(500, function ($users) use ($handle) {
                     foreach ($users as $user) {
@@ -109,6 +114,7 @@ class UserController extends Controller
                             $user->email ?: $user->phone ?: '—',
                             $user->safee_pin ?? $user->safee_id,
                             $user->verification_label,
+                            $user->jobTitleCatalog?->name ?? '',
                             $user->plan_label,
                             $user->trust_score !== null ? round($user->trust_score) : '',
                             $user->status_label,
