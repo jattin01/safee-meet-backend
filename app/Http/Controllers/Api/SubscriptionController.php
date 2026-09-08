@@ -24,11 +24,15 @@ class SubscriptionController extends Controller
 
     /**
      * GET /api/subscriptions/plans — "Plans" screen.
-     * Everything is catalog-driven from subscription_plans.
+     * Everything is catalog-driven from subscription_plans, filtered to the
+     * caller's account_type (normal/employer; plans tagged 'both' show for
+     * everyone). Falls back to no filtering for guests, since there's no
+     * account_type to filter by.
      */
-    public function plans(): JsonResponse
+    public function plans(Request $request): JsonResponse
     {
         $plans = SubscriptionPlan::active()
+            ->when($request->user(), fn ($query, $user) => $query->forAccountType($user->account_type))
             ->orderBy('sort_order')
             ->with('comparisonFeatures:id,slug,name,type')
             ->get();
@@ -64,9 +68,10 @@ class SubscriptionController extends Controller
      * each row carrying every plan's included/value so the client can render a
      * complete grid without extra lookups. Missing = not included.
      */
-    public function comparison(): JsonResponse
+    public function comparison(Request $request): JsonResponse
     {
         $plans = SubscriptionPlan::active()
+            ->when($request->user(), fn ($query, $user) => $query->forAccountType($user->account_type))
             ->orderBy('sort_order')
             ->get(['id', 'slug', 'name', 'monthly_price', 'yearly_price', 'trial_days']);
 

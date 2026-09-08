@@ -26,10 +26,20 @@ class MeetingController extends Controller
     public function index(Request $request): JsonResponse
     {
         $userId = $request->user()->id;
+        $upcomingOnly = $request->boolean('upcoming');
 
-        $meetings = Meeting::where('host_user_id', $userId)
-            ->orWhere('guest_user_id', $userId)
+        $meetings = Meeting::where(function ($query) use ($userId) {
+                $query->where('host_user_id', $userId)
+                    ->orWhere('guest_user_id', $userId);
+            })
             ->with(['host:id,display_name,trust_score,trust_tier', 'guest:id,display_name,trust_score,trust_tier'])
+            ->when(
+                $upcomingOnly,
+                fn ($query) => $query->upcoming(),
+                // Even outside the upcoming filter, never let a stale
+                // scheduled/pending meeting linger past its expiry boundary.
+                fn ($query) => $query->notExpired(),
+            )
             ->latest('meeting_date')
             ->paginate(20);
 

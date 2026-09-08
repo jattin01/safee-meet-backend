@@ -15,6 +15,22 @@ class Meeting extends Model
     use HasFactory;
     use SoftDeletes;
 
+    /**
+     * Statuses that are still "in flight" — i.e. eligible to auto-expire if
+     * nobody accepts/rejects/completes/cancels the meeting in time. A meeting
+     * in a terminal status (completed, cancelled, declined, expired,
+     * emergency, incident_reported) is never overwritten by the expiry rule.
+     */
+    public const EXPIRABLE_STATUSES = [
+        'draft', 'pending_approval', 'scheduled', 'approved', 'active', 'live',
+    ];
+
+    /**
+     * Hours after scheduled_start_at at which an un-actioned meeting expires
+     * automatically, regardless of manual host/guest action.
+     */
+    public const EXPIRY_HOURS = 6;
+
     protected $fillable = [
         'reference', 'host_user_id', 'guest_user_id',
         'user_subscription_id',
@@ -77,6 +93,58 @@ class Meeting extends Model
     private static function usesUlidKey(): bool
     {
         return in_array(Schema::getColumnType('meetings', 'id'), ['char', 'string'], true);
+    }
+
+    /**
+     * True once scheduled_start_at + EXPIRY_HOURS has passed and the meeting
+     * is still sitting in an expirable status (i.e. nobody accepted,
+     * rejected, cancelled, or completed it in time).
+     */
+    public function isExpired(): bool
+    {
+        // Read the raw column directly (not via getAttribute()) so this
+        // works both before and after the model's original state is synced,
+        // and never recurses back into the status accessor below.
+        return in_array($this->getAttributeFromArray('status'), self::EXPIRABLE_STATUSES, true)
+            && $this->scheduled_start_at
+            && now()->greaterThanOrEqualTo(
+                $this->scheduled_start_at->copy()->addHours(self::EXPIRY_HOURS)
+            );
+    }
+
+    /**
+     * Reflects auto-expiry instantly everywhere the model's status is read
+     * (API responses, blade views, admin lists) even for the brief window
+     * before the scheduled command persists it to the database.
+     */
+    public function getStatusAttribute(?string $value): ?string
+    {
+        return $this->isExpired() ? 'expired' : $value;
+    }
+
+    /**
+     * Meetings still eligible to show up as "Upcoming" — excludes anything
+     * already in a terminal status and anything past its expiry boundary
+     * (scheduled_start_at + EXPIRY_HOURS), as a query-level safety net on top
+     * of the scheduled expiry command.
+     */
+    public function scopeUpcoming($query)
+    {
+        return $query->whereIn('status', self::EXPIRABLE_STATUSES)
+            ->where('scheduled_start_at', '>', now()->subHours(self::EXPIRY_HOURS));
+    }
+
+    /**
+     * Excludes meetings that are past their expiry boundary, regardless of
+     * their stored status — a defensive filter for any "active"/"upcoming"
+     * listing that shouldn't wait on the scheduled command.
+     */
+    public function scopeNotExpired($query)
+    {
+        return $query->where(function ($query) {
+            $query->whereNotIn('status', self::EXPIRABLE_STATUSES)
+                ->orWhere('scheduled_start_at', '>', now()->subHours(self::EXPIRY_HOURS));
+        });
     }
 
     public function host(): BelongsTo

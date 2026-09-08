@@ -38,6 +38,7 @@ class SubscriptionsController extends Controller
                 $validated = $request->validate([
                     'id' => ['required', 'integer', 'exists:subscription_plans,id'],
                     'name' => ['required', 'string', 'max:50'],
+                    'account_type' => ['nullable', 'in:normal,employer,both'],
                     'monthly_price' => ['required', 'numeric', 'min:0'],
                     'yearly_price' => ['required', 'numeric', 'min:0'],
                     'trial_days' => ['nullable', 'integer', 'min:0'],
@@ -54,6 +55,9 @@ class SubscriptionsController extends Controller
                     // own id means an unchanged name keeps the same slug, and a
                     // rename updates it (staying table-unique).
                     'slug' => $this->uniqueSlug($validated['name'], (int) $validated['id']),
+                    // Who this plan is shown to; 'both' (the default) keeps it
+                    // visible to normal and employer accounts alike.
+                    'account_type' => $validated['account_type'] ?? 'both',
                     'monthly_price' => $validated['monthly_price'],
                     'yearly_price' => $validated['yearly_price'],
                     // Blank / 0 = no free trial on this plan.
@@ -70,6 +74,7 @@ class SubscriptionsController extends Controller
 
             $validated = $request->validate([
                 'name' => ['required', 'string', 'max:50'],
+                'account_type' => ['nullable', 'in:normal,employer,both'],
                 'monthly_price' => ['required', 'numeric', 'min:0'],
                 'yearly_price' => ['required', 'numeric', 'min:0'],
                 'trial_days' => ['nullable', 'integer', 'min:0'],
@@ -81,6 +86,9 @@ class SubscriptionsController extends Controller
             $plan = SubscriptionPlan::create([
                 'name' => $validated['name'],
                 'slug' => $this->uniqueSlug($validated['name']),
+                // Who this plan is shown to; 'both' (the default) keeps it
+                // visible to normal and employer accounts alike.
+                'account_type' => $validated['account_type'] ?? 'both',
                 'monthly_price' => $validated['monthly_price'],
                 'yearly_price' => $validated['yearly_price'],
                 'trial_days' => $validated['trial_days'] ?: null,

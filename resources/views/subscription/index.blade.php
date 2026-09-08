@@ -107,6 +107,7 @@
         editingPlan: {
             id: {{ old('action') === 'update' ? (int) old('id') : 'null' }},
             name: @js(old('action') === 'update' ? old('name') : ''),
+            account_type: @js(old('action') === 'update' ? old('account_type', 'both') : 'both'),
             monthly_price: @js(old('action') === 'update' ? old('monthly_price') : ''),
             yearly_price: @js(old('action') === 'update' ? old('yearly_price') : ''),
             trial_days: @js(old('action') === 'update' ? old('trial_days') : ''),
@@ -177,6 +178,14 @@
                 <input id="name" name="name" value="{{ old('action', 'store') === 'store' ? old('name') : '' }}" required class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="Enterprise">
             </div>
             <div>
+                <label class="mb-2 block text-sm text-gray-400" for="account_type">Visible to <span class="text-gray-600">(account type)</span></label>
+                <select id="account_type" name="account_type" class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]">
+                    <option value="both" {{ old('action', 'store') === 'store' && old('account_type', 'both') === 'both' ? 'selected' : '' }}>Both</option>
+                    <option value="normal" {{ old('action', 'store') === 'store' && old('account_type') === 'normal' ? 'selected' : '' }}>Normal users only</option>
+                    <option value="employer" {{ old('action', 'store') === 'store' && old('account_type') === 'employer' ? 'selected' : '' }}>Employers only</option>
+                </select>
+            </div>
+            <div>
                 <label class="mb-2 block text-sm text-gray-400" for="monthly_price">Monthly price</label>
                 <input id="monthly_price" name="monthly_price" type="number" step="0.01" min="0" value="{{ old('action', 'store') === 'store' ? old('monthly_price') : '' }}" required class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="29.00">
             </div>
@@ -235,7 +244,7 @@
                     <i class="fa-solid {{ $plan['icon'] }}"></i>
                 </span>
                 <button type="button"
-                    @click="showEditModal = true; editingPlan = { id: {{ $plan['id'] }}, name: @js($plan['name']), monthly_price: {{ (float) $plan['monthly_price'] }}, yearly_price: {{ (float) $plan['yearly_price'] }}, trial_days: {{ $plan['trial_days'] ?? "''" }}, features: @js(implode(chr(10), $plan['features'])), plan_features: @js(array_replace($blankPlanFeatures, $planFeatureMatrix[$plan['id']] ?? [])) }"
+                    @click="showEditModal = true; editingPlan = { id: {{ $plan['id'] }}, name: @js($plan['name']), account_type: @js($plan['account_type'] ?? 'both'), monthly_price: {{ (float) $plan['monthly_price'] }}, yearly_price: {{ (float) $plan['yearly_price'] }}, trial_days: {{ $plan['trial_days'] ?? "''" }}, features: @js(implode(chr(10), $plan['features'])), plan_features: @js(array_replace($blankPlanFeatures, $planFeatureMatrix[$plan['id']] ?? [])) }"
                     class="absolute top-2 right-12 rounded-lg border border-blue-400 w-[30px] h-[30px] p-[0px] text-[12px] font-semibold text-blue-400 transition hover:bg-blue-400 hover:text-white">
                     <i class="fa-regular fa-pen-to-square"></i>
                 </button>
@@ -272,7 +281,7 @@
                     <i class="fa-solid {{ $plan['icon'] }}"></i>
                 </span>
                 <button type="button"
-                    @click="showEditModal = true; editingPlan = { id: {{ $plan['id'] }}, name: @js($plan['name']), monthly_price: {{ (float) $plan['monthly_price'] }}, yearly_price: {{ (float) $plan['yearly_price'] }}, trial_days: {{ $plan['trial_days'] ?? "''" }}, features: @js(implode(chr(10), $plan['features'])), plan_features: @js(array_replace($blankPlanFeatures, $planFeatureMatrix[$plan['id']] ?? [])) }"
+                    @click="showEditModal = true; editingPlan = { id: {{ $plan['id'] }}, name: @js($plan['name']), account_type: @js($plan['account_type'] ?? 'both'), monthly_price: {{ (float) $plan['monthly_price'] }}, yearly_price: {{ (float) $plan['yearly_price'] }}, trial_days: {{ $plan['trial_days'] ?? "''" }}, features: @js(implode(chr(10), $plan['features'])), plan_features: @js(array_replace($blankPlanFeatures, $planFeatureMatrix[$plan['id']] ?? [])) }"
                     class="absolute top-2 right-12 rounded-lg border border-blue-400 w-[30px] h-[30px] p-[0px] text-[12px] font-semibold text-blue-400 transition hover:bg-blue-400 hover:text-white">
                     <i class="fa-regular fa-pen-to-square"></i>
                 </button>
@@ -339,6 +348,14 @@
                 <div class="md:col-span-2">
                     <label class="mb-2 block text-sm text-gray-400" for="edit_name">Plan name</label>
                     <input id="edit_name" name="name" x-model="editingPlan.name" required class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="mb-2 block text-sm text-gray-400" for="edit_account_type">Visible to <span class="text-gray-600">(account type)</span></label>
+                    <select id="edit_account_type" name="account_type" x-model="editingPlan.account_type" class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]">
+                        <option value="both">Both</option>
+                        <option value="normal">Normal users only</option>
+                        <option value="employer">Employers only</option>
+                    </select>
                 </div>
                 <div>
                     <label class="mb-2 block text-sm text-gray-400" for="edit_monthly_price">Monthly price</label>

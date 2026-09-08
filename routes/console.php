@@ -10,3 +10,7 @@ Artisan::command('inspire', function () {
 
 // Flip expired free trials to active (and charge) once a day.
 Schedule::command('subscriptions:process-trials')->daily();
+
+// Auto-expire meetings that nobody accepted/rejected/completed within
+// Meeting::EXPIRY_HOURS of their scheduled time.
+Schedule::command('meetings:expire-stale')->everyFiveMinutes();

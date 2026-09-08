@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class SubscriptionPlan extends Model
 {
     protected $fillable = [
-        'name', 'slug', 'monthly_price', 'yearly_price', 'trial_days',
+        'name', 'slug', 'account_type', 'monthly_price', 'yearly_price', 'trial_days',
         'pin_search_limit', 'features', 'icon', 'color', 'sort_order', 'is_active',
         'monthly_stripe_price_id', 'yearly_stripe_price_id',
     ];
@@ -43,6 +43,15 @@ class SubscriptionPlan extends Model
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
+    }
+
+    /**
+     * Restrict to plans targeted at the given account type ('normal' /
+     * 'employer'), plus any plan tagged 'both' (visible to everyone).
+     */
+    public function scopeForAccountType($query, string $accountType)
+    {
+        return $query->whereIn('account_type', [$accountType, 'both']);
     }
 
     /** null pin_search_limit means unlimited searches on this plan. */
