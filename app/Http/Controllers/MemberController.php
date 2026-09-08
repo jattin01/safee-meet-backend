@@ -347,7 +347,7 @@ public function searchByQR(Request $request): JsonResponse
 
         $usersById = User::whereIn('id', $rows->pluck('member_id'))
             ->where('status', 'active')
-            ->with(['userVerification', 'verificationLevel'])
+            ->with(['userVerification', 'verificationLevel', 'jobTitleCatalog'])
             ->get()
             ->keyBy(fn (User $u) => (string) $u->id);
 
@@ -510,6 +510,7 @@ public function searchByQR(Request $request): JsonResponse
             'verificationStatus'  => $verification?->status ?? 'not_submitted',
             'badgeIcon'           => $user->badge_icon_url,
             'jobTitleId'          => $user->job_title,
+            'jobTitle'            => $user->jobTitleCatalog?->name,
             'companyName'         => $user->company_name,
             'subscriptionPlan'    => 'free',
             'rating'              => 0.0,
