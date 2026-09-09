@@ -1,16 +1,16 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Welcome to SafeMeet</title>
+    <title>Welcome to SafeeMeet</title>
 </head>
 <body>
 
-    <h2>Welcome to SafeMeet, {{ $user->name }}!</h2>
+    <h2>Welcome to SafeeMeet, {{ $user->name }}!</h2>
 
     <p>Your account has been successfully created.</p>
 
     <p>
-        Thank you for registering with SafeMeet.
+        Thank you for registering with SafeeMeet.
     </p>
 
     <p>

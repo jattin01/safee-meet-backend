@@ -503,7 +503,7 @@ public function searchByQR(Request $request): JsonResponse
             'name'                => $user->display_name ?? 'SAFEE User',
             'safeePIN'            => $user->safee_pin,
             'avatarUrl'           => $user->avatar_url,
-            'profileImage'        => $verification?->face_id_image ? '/storage/'.$verification->face_id_image : null,
+            'profileImage'        => $user->profile_image_url,
             'trustScore'          => (int) ($user->trust_score ?? 0),
             'safetyScore'         => (int) ($user->safety_score ?? 0),
             'verificationLevel'   => $user->verification_level,

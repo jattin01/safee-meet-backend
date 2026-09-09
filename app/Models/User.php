@@ -130,6 +130,7 @@ class User extends Authenticatable
         'safee_pin',
         'safety_score',
         'badge_icon_url',
+        'profile_image_url',
     ];
 
     protected function casts(): array
@@ -496,6 +497,17 @@ class User extends Authenticatable
         $icon = $this->verificationLevel?->badge_icon;
 
         return $icon ? '/storage/'.$icon : null;
+    }
+
+    /**
+     * Root-relative URL for the user's uploaded face-ID verification photo,
+     * or null if none is set/uploaded.
+     */
+    public function getProfileImageUrlAttribute(): ?string
+    {
+        $image = $this->userVerification?->face_id_image;
+
+        return $image ? '/storage/'.$image : null;
     }
 
     public function getVerificationLevelLabelAttribute(): string
