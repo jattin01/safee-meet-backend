@@ -32,6 +32,11 @@ Route::post('/webhooks/didit', [DiditVerificationController::class, 'handleWebho
 // Usage: POST /api/test-telesign-otp  { "phone_number": "91XXXXXXXXXX" }
 Route::post('/test-telesign-otp', [\App\Http\Controllers\Api\TelesignTestController::class, 'sendOtp'])
     ->middleware('throttle:5,1');
+
+// TEMPORARY — for testing/debugging the SMTP email integration directly. Remove after verifying.
+// Usage: POST /api/test-smtp-email  { "to": "someone@example.com" }
+Route::post('/test-smtp-email', [\App\Http\Controllers\Api\MailTestController::class, 'sendTest'])
+    ->middleware('throttle:5,1');
 Route::middleware('auth:sanctum')->get('/v1/auth/phone/home', [ProfileController::class, 'home']);
 Route::prefix('v1')->group(function (): void {
 

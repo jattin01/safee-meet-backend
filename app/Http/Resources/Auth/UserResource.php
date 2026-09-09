@@ -17,7 +17,7 @@ class UserResource extends JsonResource
             'safeeId' => $this->safee_id,
             'displayName' => $this->display_name,
             'avatarUrl' => $this->avatar_url,
-            'profileImage' => $verification?->face_id_image ? asset('storage/'.$verification->face_id_image) : null,
+            'profileImage' => $verification?->face_id_image ? '/storage/'.$verification->face_id_image : null,
             'accountType' => $this->account_type,
             'jobTitleId' => $this->job_title,
             'jobTitle' => $this->jobTitleCatalog?->name,
