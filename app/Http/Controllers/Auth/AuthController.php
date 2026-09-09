@@ -23,6 +23,8 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Kreait\Firebase\Contract\Auth as FirebaseAuth;
 use Kreait\Firebase\Exception\Auth\UserNotFound;
+use App\Mail\UserRegisteredMail;
+use Illuminate\Support\Facades\Mail;
 use Throwable;
 
 /**
@@ -1107,6 +1109,12 @@ class AuthController extends Controller
 
             // Clear OTP cache after successful registration
             Cache::forget($cacheKey);
+
+            // Send registration email
+            if (!empty($user->email)) {
+                Mail::to($user->email)
+                    ->queue(new UserRegisteredMail($user));
+            }
 
             // Issue Sanctum token
             $token = $user->createToken('auth_token')->plainTextToken;

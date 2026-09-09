@@ -33,7 +33,7 @@ class AuthController extends Controller
     {
         $validated = $this->validatePhoneRequest($request, true);
 
-        if (User::withTrashed()->where('phone', $validated['phone'])->first()) {
+        if (  User::withTrashed()->where('phone', $validated['phone'])->first()) {
             return response()->json([
                 'message' => 'An account already exists for this mobile number. Please log in.',
             ], 409);
