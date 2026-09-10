@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Mail\MeetingCompletedMail;
+use App\Mail\MeetingCreatedMail;
 use App\Models\Meeting;
 use App\Models\User;
 use App\Services\PlanEntitlements;
 use App\Services\PushNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -304,6 +307,18 @@ class MeetingController extends Controller
             ['type' => 'meeting_confirmed', 'meeting_id' => (string) $meeting->id],
         );
 
+        if (! empty($meeting->guest->email)) {
+            Mail::to($meeting->guest->email)->queue(new MeetingCreatedMail(
+                recipientName: $meeting->guest->display_name,
+                otherPartyName: $meeting->host->display_name,
+                location: $meeting->location,
+                meetingDate: $meeting->meeting_date?->format('M j, Y'),
+                meetingTime: $meeting->meeting_time,
+                type: $meeting->type,
+                purpose: $meeting->purpose,
+            ));
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Meeting created successfully.',
@@ -496,11 +511,30 @@ class MeetingController extends Controller
             ['type' => 'meeting_completed', 'meeting_id' => (string) $meeting->id],
         );
 
+        $this->sendCompletionMail($meeting->host, $meeting->guest, $meeting, $validated['rating'] ?? null);
+        $this->sendCompletionMail($meeting->guest, $meeting->host, $meeting, $validated['rating'] ?? null);
+
         // TODO: persist per-meeting ratings to a `meeting_reviews` table if star ratings
         // (as seen on the Home screen's Recent Meetings list) need individual history
         // rather than a rolling average on users.rating.
 
         return response()->json(['message' => 'Meeting marked complete']);
+    }
+
+    private function sendCompletionMail(User $recipient, User $otherParty, Meeting $meeting, ?float $rating): void
+    {
+        if (empty($recipient->email)) {
+            return;
+        }
+
+        Mail::to($recipient->email)->queue(new MeetingCompletedMail(
+            recipientName: $recipient->display_name,
+            otherPartyName: $otherParty->display_name,
+            location: $meeting->location,
+            meetingDate: $meeting->meeting_date?->format('M j, Y'),
+            meetingTime: $meeting->meeting_time,
+            rating: $rating,
+        ));
     }
 
     private function authorizeParticipant(Request $request, Meeting $meeting): void
