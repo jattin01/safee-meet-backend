@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Mail\SubscriptionInvoiceMail;
 use App\Models\Payment;
 use App\Models\PaymentWebhookEvent;
 use App\Models\Subscription;
@@ -11,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Stripe\Exception\SignatureVerificationException;
 use UnexpectedValueException;
 use Stripe\Webhook;
@@ -57,6 +59,31 @@ class StripeWebhookController extends Controller
     }
 
     $eventType = $event->type;
+
+    // Renewals (and out-of-band changes on Stripe's side) arrive as
+    // invoice.*/customer.subscription.* events, not payment_intent.* — their
+    // data.object is an Invoice/Subscription, not a PaymentIntent, and are
+    // looked up by stripe_subscription_id instead of a payment intent id.
+    // Route these to their own handlers before the payment_intent-specific
+    // lookup below, which would otherwise misread the invoice's own id as a
+    // payment intent id and silently no-op with "Subscription not found".
+    switch ($eventType) {
+        case 'invoice.paid':
+            $this->handleInvoicePaid($event);
+
+            return response()->json(['message' => 'Webhook processed successfully'], 200);
+
+        case 'invoice.payment_failed':
+            $this->handlePaymentFailed($event);
+
+            return response()->json(['message' => 'Webhook processed successfully'], 200);
+
+        case 'customer.subscription.deleted':
+            $this->handleSubscriptionDeleted($event);
+
+            return response()->json(['message' => 'Webhook processed successfully'], 200);
+    }
+
     $paymentIntent = $event->data->object;
 
     $paymentIntentId = $paymentIntent->id ?? null;
@@ -121,6 +148,8 @@ class StripeWebhookController extends Controller
                 'Your plan was purchased successfully.',
                 ['type' => 'subscription_purchased', 'subscription_id' => (string) $subscription->id],
             );
+
+            $this->sendInvoiceMail($subscription, $payment);
             break;
 
         case 'payment_intent.payment_failed':
@@ -181,7 +210,7 @@ class StripeWebhookController extends Controller
         ]);
         $subscription->user()->update(['subscription_status' => 'active']);
 
-        Payment::updateOrCreate(
+        $payment = Payment::updateOrCreate(
             ['stripe_invoice_id' => $invoice->id],
             [
                 'user_id' => $subscription->user_id,
@@ -193,6 +222,34 @@ class StripeWebhookController extends Controller
                 'paid_at' => now(),
             ],
         );
+
+        $this->sendInvoiceMail($subscription, $payment);
+    }
+
+    /**
+     * Builds the flat set of fields SubscriptionInvoiceMail needs from the
+     * subscription/payment models and queues it — shared by the first-purchase
+     * (payment_intent.succeeded) and renewal (invoice.paid) paths.
+     */
+    private function sendInvoiceMail(Subscription $subscription, Payment $payment): void
+    {
+        $user = $subscription->user;
+
+        if (empty($user?->email)) {
+            return;
+        }
+
+        Mail::to($user->email)->queue(new SubscriptionInvoiceMail(
+            userName: $user->name,
+            planName: $subscription->plan?->name ?? '-',
+            billingCycle: $subscription->billing_cycle,
+            amount: ($payment->amount ?? 0) / 100,
+            currency: $payment->currency ?? 'usd',
+            status: $subscription->status,
+            paymentDate: ($payment->paid_at ?? now())->format('d M Y'),
+            nextBillingDate: optional($subscription->renews_at)->format('d M Y'),
+            transactionId: $payment->stripe_invoice_id ?? $payment->stripe_payment_intent_id,
+        ));
     }
 
     private function handlePaymentFailed($event): void
