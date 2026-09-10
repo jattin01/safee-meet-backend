@@ -4,6 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\Verification\StoreDiditVerificationImages;
+use App\Mail\VerificationApprovedMail;
+use App\Mail\VerificationRejectedMail;
+use App\Mail\VerificationUnderReviewMail;
 use App\Models\UserVerification;
 use App\Services\SafetyPointService;
 use App\Services\Verification\UserVerificationLevelService;
@@ -13,6 +16,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class DiditVerificationController extends Controller
 {
@@ -145,7 +149,9 @@ class DiditVerificationController extends Controller
             return response()->json(['message' => 'Unknown session'], 404);
         }
 
+        $previousDiditStatus = $verification->didit_decision_status;
         $wasAlreadyApproved = $verification->status === 'approved';
+        $wasAlreadyRejected = $verification->status === 'rejected';
         $diditStatus = $payload['status'] ?? $verification->didit_decision_status;
 
         $verification->fill([
@@ -189,11 +195,11 @@ class DiditVerificationController extends Controller
             );
         }
 
-        if ($diditStatus === 'Declined') {
+        if ($diditStatus === 'Declined' && ! $wasAlreadyRejected) {
             app(SafetyPointService::class)->addPoints(
                 userId: $verification->user_id,
                 eventKey: 'kyc_declined',
-                points: -25,
+                points: 0,
                 referenceType: 'user_verification',
                 description: 'KYC verification declined by Didit.'
             );
@@ -218,6 +224,21 @@ class DiditVerificationController extends Controller
             ])->save();
 
             TrustScoreCalculator::recalculate($user);
+        }
+
+        if ($previousDiditStatus !== $diditStatus
+            && ($user = $verification->user)
+            && ! empty($user->email)) {
+            $mail = match ($diditStatus) {
+                'Approved' => new VerificationApprovedMail($user),
+                'Declined' => new VerificationRejectedMail($user, $verification->rejection_reason),
+                'In Review' => new VerificationUnderReviewMail($user),
+                default => null,
+            };
+
+            if ($mail) {
+                Mail::to($user->email)->queue($mail);
+            }
         }
 
         return response()->json(['message' => 'ok']);

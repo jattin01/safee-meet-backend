@@ -1,20 +1,27 @@
 <?php
 
+use App\Mail\VerificationApprovedMail;
+use App\Mail\VerificationRejectedMail;
+use App\Mail\VerificationUnderReviewMail;
 use App\Models\User;
 use App\Models\UserVerification;
 use App\Models\VerificationLevel;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Testing\TestResponse;
 
-function postApprovedDiditWebhook(UserVerification $verification): TestResponse
-{
+function postDiditStatusWebhook(
+    UserVerification $verification,
+    string $status,
+    array $decision = [],
+): TestResponse {
     $payload = [
         'event_id' => 'event-'.$verification->id,
         'session_id' => $verification->didit_session_id,
-        'status' => 'Approved',
+        'status' => $status,
         'webhook_type' => 'status.updated',
         'timestamp' => now()->timestamp,
-        'decision' => ['status' => 'Approved'],
+        'decision' => ['status' => $status, ...$decision],
     ];
     $rawPayload = json_encode($payload, JSON_UNESCAPED_SLASHES);
 
@@ -25,7 +32,13 @@ function postApprovedDiditWebhook(UserVerification $verification): TestResponse
     ], content: $rawPayload);
 }
 
+function postApprovedDiditWebhook(UserVerification $verification): TestResponse
+{
+    return postDiditStatusWebhook($verification, 'Approved');
+}
+
 beforeEach(function () {
+    Mail::fake();
     Queue::fake();
     config(['services.didit.webhook_secret' => 'test-webhook-secret']);
 });
@@ -52,6 +65,8 @@ it('stores the Level 1 catalog id when an approved webhook promotes the verifica
     expect($verification->fresh()->verification_level)->toBe(1)
         ->and($user->fresh()->verification_level)->toBe('level1')
         ->and($user->fresh()->verification_level_id)->toBe($levelOne->id);
+
+    Mail::assertQueued(VerificationApprovedMail::class, 1);
 });
 
 it('does not replace a higher user verification catalog id with Level 1', function () {
@@ -85,4 +100,52 @@ it('does not replace a higher user verification catalog id with Level 1', functi
     expect($verification->fresh()->verification_level)->toBe(1)
         ->and($user->fresh()->verification_level)->toBe('level2')
         ->and($user->fresh()->verification_level_id)->toBe($levelTwo->id);
+});
+
+it('queues the matching email only when the Didit status changes', function () {
+    $user = User::factory()->create();
+    $verification = UserVerification::create([
+        'user_id' => $user->id,
+        'provider' => 'didit',
+        'didit_session_id' => 'under-review-mail-session',
+        'didit_decision_status' => 'In Progress',
+        'verification_level' => 0,
+        'status' => 'pending',
+    ]);
+
+    postDiditStatusWebhook($verification, 'In Review')->assertOk();
+    postDiditStatusWebhook($verification->fresh(), 'In Review')->assertOk();
+
+    Mail::assertQueued(VerificationUnderReviewMail::class, 1);
+    Mail::assertNotQueued(VerificationApprovedMail::class);
+    Mail::assertNotQueued(VerificationRejectedMail::class);
+});
+
+it('queues the rejection email with the Didit reason', function () {
+    $user = User::factory()->create();
+    $verification = UserVerification::create([
+        'user_id' => $user->id,
+        'provider' => 'didit',
+        'didit_session_id' => 'rejected-mail-session',
+        'didit_decision_status' => 'In Review',
+        'verification_level' => 0,
+        'status' => 'pending',
+    ]);
+
+    postDiditStatusWebhook($verification, 'Declined', [
+        'reason' => 'Document image was unreadable.',
+    ])->assertOk();
+
+    Mail::assertQueued(
+        VerificationRejectedMail::class,
+        fn (VerificationRejectedMail $mail): bool => $mail->reason === 'Document image was unreadable.',
+    );
+    Mail::assertNotQueued(VerificationApprovedMail::class);
+    Mail::assertNotQueued(VerificationUnderReviewMail::class);
+
+    $this->assertDatabaseHas('user_safety_point_histories', [
+        'user_id' => $user->id,
+        'event_key' => 'kyc_declined',
+        'points' => 0,
+    ]);
 });
