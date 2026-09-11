@@ -8,8 +8,8 @@ class TrustScoreCalculator
 {
     private const SCORES = [
         'none' => 0,
-        'level1' => 33,
-        'level2' => 67,
+        'level1' => 50,
+        'level2' => 100,
         'professional' => 100,
     ];
 

@@ -35,14 +35,14 @@ it('keeps the user level, catalog badge id, verification row, and trust score in
         ->and($user->verification_level)->toBe('level1')
         ->and($user->verification_level_id)->toBe($levelOne->id)
         ->and($user->verificationLevel->badge_icon)->toBe('verification-levels/level_1_verified.png')
-        ->and($user->trust_score)->toBe(33);
+        ->and($user->trust_score)->toBe(50);
 
     $service->promote($user, 'level2');
     $user->refresh();
 
     expect($user->verification_level)->toBe('level2')
         ->and($user->verification_level_id)->toBe($levelTwo->id)
-        ->and($user->trust_score)->toBe(67);
+        ->and($user->trust_score)->toBe(100);
 
     $service->promote($user, 'professional');
     $user->refresh();

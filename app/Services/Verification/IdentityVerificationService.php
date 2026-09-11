@@ -232,7 +232,7 @@ class IdentityVerificationService
 
             $verification->user->forceFill([
                 'kyc_status' => 'verified',
-                'trust_score' => max((int) $verification->user->trust_score, 60),
+                'trust_score' => max((int) $verification->user->trust_score, \App\Support\Verification\TrustScoreCalculator::scoreFor('level1')),
                 'trust_tier' => 'low',
                 'updated_at' => now(),
             ])->save();

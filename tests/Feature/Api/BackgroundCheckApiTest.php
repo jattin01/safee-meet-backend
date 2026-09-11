@@ -263,7 +263,7 @@ it('stores a normalized clear result without exposing the raw response', functio
     $user->refresh();
     expect($user->verification_level)->toBe('level2');
     expect($user->verification_level_id)->toBe($levelTwo->id);
-    expect($user->trust_score)->toBe(67);
+    expect($user->trust_score)->toBe(100);
 
     Sanctum::actingAs($user);
     $response = $this->getJson('/api/v1/verification/background-status')->assertOk();
@@ -304,7 +304,7 @@ it('promotes a user when Searchbug completes with potential records', function (
     $user->refresh();
     expect($user->verification_level)->toBe('level2');
     expect($user->verification_level_id)->toBe($levelTwo->id);
-    expect($user->trust_score)->toBe(67);
+    expect($user->trust_score)->toBe(100);
 });
 
 it('maps verified identity data through the configurable Searchbug adapter', function () {
