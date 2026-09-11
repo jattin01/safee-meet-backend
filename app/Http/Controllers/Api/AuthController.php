@@ -33,7 +33,7 @@ class AuthController extends Controller
     {
         $validated = $this->validatePhoneRequest($request, true);
 
-        if (  User::withTrashed()->where('phone', $validated['phone'])->first()) {
+        if (User::where('phone', $validated['phone'])->exists()) {
             return response()->json([
                 'message' => 'An account already exists for this mobile number. Please log in.',
             ], 409);
@@ -1518,6 +1518,17 @@ class AuthController extends Controller
 
             $userId = $user->id;
             $phone = $user->phone;
+
+            // Free up the phone number for reuse: the `phone` column has a
+            // DB-level unique constraint that a soft-delete alone does not
+            // bypass, so a deleted account would otherwise permanently block
+            // re-registration with the same number. Stash the original value
+            // in case it's ever needed for audit/support purposes.
+            if ($phone) {
+                $user->forceFill([
+                    'phone' => $phone . '::deleted::' . $userId . '::' . now()->timestamp,
+                ])->save();
+            }
 
             $user->delete();
 

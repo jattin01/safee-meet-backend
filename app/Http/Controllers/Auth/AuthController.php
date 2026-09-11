@@ -21,6 +21,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Kreait\Firebase\Contract\Auth as FirebaseAuth;
 use Kreait\Firebase\Exception\Auth\UserNotFound;
 use App\Mail\UserRegisteredMail;
@@ -931,10 +932,20 @@ class AuthController extends Controller
         ]);
 
         $validator = Validator::make($request->all(), [
-            'phone' => ['required', 'string', 'regex:/^\+?[1-9]\d{7,14}$/', 'unique:users,phone'],
+            'phone' => [
+                'required',
+                'string',
+                'regex:/^\+?[1-9]\d{7,14}$/',
+                Rule::unique('users', 'phone')->whereNull('deleted_at'),
+            ],
             'provider' => ['required', 'string', 'in:phone,email'],
             'name' => ['required', 'string', 'max:150'],
-            'email' => ['nullable', 'email', 'max:200', 'unique:users,email'],
+            'email' => [
+                'nullable',
+                'email',
+                'max:200',
+                Rule::unique('users', 'email')->whereNull('deleted_at'),
+            ],
             'accountType' => ['required', 'string', 'in:normal,employer'],
             'companyName' => ['nullable', 'string', 'max:255'],
             'consentAccepted' => ['required', 'boolean'],
