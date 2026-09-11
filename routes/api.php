@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\ReviewController;
 use App\Http\Controllers\Api\SosController;
 use App\Http\Controllers\Api\StripeWebhookController;
+use App\Http\Controllers\Api\CouponController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\VerificationApiController;
 use App\Http\Controllers\Api\VerificationController;
@@ -135,6 +136,9 @@ Route::prefix('v1')->group(function (): void {
         Route::get('/subscriptions/current', [SubscriptionController::class, 'current']);
         Route::post('/subscriptions/subscribe', [SubscriptionController::class, 'subscribe']);
         Route::post('/subscriptions/cancel', [SubscriptionController::class, 'cancel']);
+
+        // Coupons
+        Route::post('/coupons/validate', [CouponController::class, 'validateCoupon']);
 
         Route::prefix('members')->group(function (): void {
             Route::get('search', [MemberController::class, 'searchByPin']);

@@ -109,7 +109,9 @@
             name: @js(old('action') === 'update' ? old('name') : ''),
             account_type: @js(old('action') === 'update' ? old('account_type', 'both') : 'both'),
             monthly_price: @js(old('action') === 'update' ? old('monthly_price') : ''),
+            monthly_original_price: @js(old('action') === 'update' ? old('monthly_original_price') : ''),
             yearly_price: @js(old('action') === 'update' ? old('yearly_price') : ''),
+            yearly_original_price: @js(old('action') === 'update' ? old('yearly_original_price') : ''),
             trial_days: @js(old('action') === 'update' ? old('trial_days') : ''),
             features: @js(old('action') === 'update' ? old('features') : ''),
             plan_features: @js($blankPlanFeatures)
@@ -186,12 +188,20 @@
                 </select>
             </div>
             <div>
-                <label class="mb-2 block text-sm text-gray-400" for="monthly_price">Monthly price</label>
+                <label class="mb-2 block text-sm text-gray-400" for="monthly_price">Monthly price <span class="text-gray-600">(discounted / selling price)</span></label>
                 <input id="monthly_price" name="monthly_price" type="number" step="0.01" min="0" value="{{ old('action', 'store') === 'store' ? old('monthly_price') : '' }}" required class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="29.00">
             </div>
             <div>
-                <label class="mb-2 block text-sm text-gray-400" for="yearly_price">Yearly price</label>
+                <label class="mb-2 block text-sm text-gray-400" for="monthly_original_price">Monthly flat price (MRP) <span class="text-gray-600">(optional — shown struck-through)</span></label>
+                <input id="monthly_original_price" name="monthly_original_price" type="number" step="0.01" min="0" value="{{ old('action', 'store') === 'store' ? old('monthly_original_price') : '' }}" class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="49.00">
+            </div>
+            <div>
+                <label class="mb-2 block text-sm text-gray-400" for="yearly_price">Yearly price <span class="text-gray-600">(discounted / selling price)</span></label>
                 <input id="yearly_price" name="yearly_price" type="number" step="0.01" min="0" value="{{ old('action', 'store') === 'store' ? old('yearly_price') : '' }}" required class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="290.00">
+            </div>
+            <div>
+                <label class="mb-2 block text-sm text-gray-400" for="yearly_original_price">Yearly flat price (MRP) <span class="text-gray-600">(optional — shown struck-through)</span></label>
+                <input id="yearly_original_price" name="yearly_original_price" type="number" step="0.01" min="0" value="{{ old('action', 'store') === 'store' ? old('yearly_original_price') : '' }}" class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]" placeholder="490.00">
             </div>
             <div class="md:col-span-2">
                 <label class="mb-2 block text-sm text-gray-400" for="trial_days">Free trial days <span class="text-gray-600">(leave blank for no trial)</span></label>
@@ -244,7 +254,7 @@
                     <i class="fa-solid {{ $plan['icon'] }}"></i>
                 </span>
                 <button type="button"
-                    @click="showEditModal = true; editingPlan = { id: {{ $plan['id'] }}, name: @js($plan['name']), account_type: @js($plan['account_type'] ?? 'both'), monthly_price: {{ (float) $plan['monthly_price'] }}, yearly_price: {{ (float) $plan['yearly_price'] }}, trial_days: {{ $plan['trial_days'] ?? "''" }}, features: @js(implode(chr(10), $plan['features'])), plan_features: @js(array_replace($blankPlanFeatures, $planFeatureMatrix[$plan['id']] ?? [])) }"
+                    @click="showEditModal = true; editingPlan = { id: {{ $plan['id'] }}, name: @js($plan['name']), account_type: @js($plan['account_type'] ?? 'both'), monthly_price: {{ (float) $plan['monthly_price'] }}, monthly_original_price: {{ $plan['monthly_original_price'] !== null ? (float) $plan['monthly_original_price'] : "''" }}, yearly_price: {{ (float) $plan['yearly_price'] }}, yearly_original_price: {{ $plan['yearly_original_price'] !== null ? (float) $plan['yearly_original_price'] : "''" }}, trial_days: {{ $plan['trial_days'] ?? "''" }}, features: @js(implode(chr(10), $plan['features'])), plan_features: @js(array_replace($blankPlanFeatures, $planFeatureMatrix[$plan['id']] ?? [])) }"
                     class="absolute top-2 right-12 rounded-lg border border-blue-400 w-[30px] h-[30px] p-[0px] text-[12px] font-semibold text-blue-400 transition hover:bg-blue-400 hover:text-white">
                     <i class="fa-regular fa-pen-to-square"></i>
                 </button>
@@ -257,7 +267,13 @@
                         </button>
                     </form>
                 <h2>{{ $plan['name'] }}</h2>
-                <h4 class="text-white text-[30px] font-bold mt-3">${{ number_format($plan['monthly_price'], 2) }}</h4>
+                <div class="mt-3 flex items-center gap-2">
+                    <h4 class="text-white text-[30px] font-bold">${{ number_format($plan['monthly_price'], 2) }}</h4>
+                    @if($plan['monthly_original_price'] !== null && (float) $plan['monthly_original_price'] > (float) $plan['monthly_price'])
+                        <span class="text-gray-500 text-sm line-through">${{ number_format($plan['monthly_original_price'], 2) }}</span>
+                        <span class="rounded-md bg-green-500/10 border border-green-500/30 px-1.5 py-0.5 text-[11px] font-bold text-green-400">{{ $plan->monthly_discount_percent }}% OFF</span>
+                    @endif
+                </div>
                 @if(!empty($plan['trial_days']))
                     <span class="inline-block mt-2 rounded-md bg-green-500/10 border border-green-500/30 px-2 py-0.5 text-xs font-semibold text-green-400">
                         {{ $plan['trial_days'] }} day{{ (int) $plan['trial_days'] === 1 ? '' : 's' }} free trial
@@ -281,7 +297,7 @@
                     <i class="fa-solid {{ $plan['icon'] }}"></i>
                 </span>
                 <button type="button"
-                    @click="showEditModal = true; editingPlan = { id: {{ $plan['id'] }}, name: @js($plan['name']), account_type: @js($plan['account_type'] ?? 'both'), monthly_price: {{ (float) $plan['monthly_price'] }}, yearly_price: {{ (float) $plan['yearly_price'] }}, trial_days: {{ $plan['trial_days'] ?? "''" }}, features: @js(implode(chr(10), $plan['features'])), plan_features: @js(array_replace($blankPlanFeatures, $planFeatureMatrix[$plan['id']] ?? [])) }"
+                    @click="showEditModal = true; editingPlan = { id: {{ $plan['id'] }}, name: @js($plan['name']), account_type: @js($plan['account_type'] ?? 'both'), monthly_price: {{ (float) $plan['monthly_price'] }}, monthly_original_price: {{ $plan['monthly_original_price'] !== null ? (float) $plan['monthly_original_price'] : "''" }}, yearly_price: {{ (float) $plan['yearly_price'] }}, yearly_original_price: {{ $plan['yearly_original_price'] !== null ? (float) $plan['yearly_original_price'] : "''" }}, trial_days: {{ $plan['trial_days'] ?? "''" }}, features: @js(implode(chr(10), $plan['features'])), plan_features: @js(array_replace($blankPlanFeatures, $planFeatureMatrix[$plan['id']] ?? [])) }"
                     class="absolute top-2 right-12 rounded-lg border border-blue-400 w-[30px] h-[30px] p-[0px] text-[12px] font-semibold text-blue-400 transition hover:bg-blue-400 hover:text-white">
                     <i class="fa-regular fa-pen-to-square"></i>
                 </button>
@@ -294,7 +310,13 @@
                         </button>
                     </form>
                 <h2>{{ $plan['name'] }}</h2>
-                <h4 class="text-white text-[30px] font-bold mt-3">${{ number_format($plan['yearly_price'], 2) }}</h4>
+                <div class="mt-3 flex items-center gap-2">
+                    <h4 class="text-white text-[30px] font-bold">${{ number_format($plan['yearly_price'], 2) }}</h4>
+                    @if($plan['yearly_original_price'] !== null && (float) $plan['yearly_original_price'] > (float) $plan['yearly_price'])
+                        <span class="text-gray-500 text-sm line-through">${{ number_format($plan['yearly_original_price'], 2) }}</span>
+                        <span class="rounded-md bg-green-500/10 border border-green-500/30 px-1.5 py-0.5 text-[11px] font-bold text-green-400">{{ $plan->yearly_discount_percent }}% OFF</span>
+                    @endif
+                </div>
                 <p class="text-sm text-[#ef4444] mb-3">Billed yearly</p>
                 @if(!empty($plan['trial_days']))
                     <span class="inline-block mb-2 rounded-md bg-green-500/10 border border-green-500/30 px-2 py-0.5 text-xs font-semibold text-green-400">
@@ -358,12 +380,20 @@
                     </select>
                 </div>
                 <div>
-                    <label class="mb-2 block text-sm text-gray-400" for="edit_monthly_price">Monthly price</label>
+                    <label class="mb-2 block text-sm text-gray-400" for="edit_monthly_price">Monthly price <span class="text-gray-600">(discounted / selling price)</span></label>
                     <input id="edit_monthly_price" name="monthly_price" type="number" step="0.01" min="0" x-model="editingPlan.monthly_price" required class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]">
                 </div>
                 <div>
-                    <label class="mb-2 block text-sm text-gray-400" for="edit_yearly_price">Yearly price</label>
+                    <label class="mb-2 block text-sm text-gray-400" for="edit_monthly_original_price">Monthly flat price (MRP) <span class="text-gray-600">(optional)</span></label>
+                    <input id="edit_monthly_original_price" name="monthly_original_price" type="number" step="0.01" min="0" x-model="editingPlan.monthly_original_price" class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]">
+                </div>
+                <div>
+                    <label class="mb-2 block text-sm text-gray-400" for="edit_yearly_price">Yearly price <span class="text-gray-600">(discounted / selling price)</span></label>
                     <input id="edit_yearly_price" name="yearly_price" type="number" step="0.01" min="0" x-model="editingPlan.yearly_price" required class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]">
+                </div>
+                <div>
+                    <label class="mb-2 block text-sm text-gray-400" for="edit_yearly_original_price">Yearly flat price (MRP) <span class="text-gray-600">(optional)</span></label>
+                    <input id="edit_yearly_original_price" name="yearly_original_price" type="number" step="0.01" min="0" x-model="editingPlan.yearly_original_price" class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]">
                 </div>
                 <div class="md:col-span-2">
                     <label class="mb-2 block text-sm text-gray-400" for="edit_trial_days">Free trial days <span class="text-gray-600">(leave blank for no trial)</span></label>

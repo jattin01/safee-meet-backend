@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AdminController;
 use App\Http\Controllers\Admin\BackgroundCheckController;
+use App\Http\Controllers\Admin\CouponController;
 use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\Admin\FeatureController;
 use App\Http\Controllers\Admin\JobTitleController;
@@ -85,6 +86,14 @@ Route::middleware('auth:admin')->group(function () {
         Route::put('/job-titles/{jobTitle}', [JobTitleController::class, 'update'])->name('job-titles.update');
         Route::patch('/job-titles/{jobTitle}/status', [JobTitleController::class, 'updateStatus'])->name('job-titles.status.update');
         Route::delete('/job-titles/{jobTitle}', [JobTitleController::class, 'destroy'])->name('job-titles.destroy');
+
+        Route::get('/coupons', [CouponController::class, 'index'])->name('coupons.index');
+        Route::get('/coupons/data', [CouponController::class, 'data'])->name('coupons.data');
+        Route::post('/coupons', [CouponController::class, 'store'])->name('coupons.store');
+        Route::get('/coupons/{coupon}', [CouponController::class, 'show'])->name('coupons.show');
+        Route::put('/coupons/{coupon}', [CouponController::class, 'update'])->name('coupons.update');
+        Route::patch('/coupons/{coupon}/status', [CouponController::class, 'updateStatus'])->name('coupons.status.update');
+        Route::delete('/coupons/{coupon}', [CouponController::class, 'destroy'])->name('coupons.destroy');
     });
 
     Route::get('/verification-levels', [VerificationLevelController::class, 'index'])->name('verification-levels.index');

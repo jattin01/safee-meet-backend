@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Coupon;
+use App\Models\CouponRedemption;
 use App\Models\Feature;
 use App\Models\Payment;
 use App\Models\Subscription;
@@ -280,6 +282,12 @@ class SubscriptionController extends Controller
             'nullable',
             'string',
         ],
+
+        'coupon_code' => [
+            'nullable',
+            'string',
+            'max:40',
+        ],
     ]);
 
     $user = $request->user();
@@ -289,9 +297,48 @@ class SubscriptionController extends Controller
         $validated['plan_slug']
     )->with('comparisonFeatures')->firstOrFail();
 
+    // Enforce the same account_type targeting that plans()/comparison() use
+    // to decide what's shown — 'both' is open to everyone, otherwise the
+    // plan's account_type must match the buyer's, so a normal user can't
+    // buy an employer-only plan (or vice versa) even by calling the API
+    // directly with a known slug.
+    if ($plan->account_type !== 'both' && $plan->account_type !== $user->account_type) {
+        return response()->json([
+            'message' => 'This plan is not available for your account type.',
+        ], 422);
+    }
+
     // Freeze the plan's current matrix before creating the user's historical
     // subscription row. Later admin edits affect new purchases only.
     $featureSnapshot = $this->entitlements->snapshotFor($plan);
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Resolve & Validate Coupon (optional)
+    |--------------------------------------------------------------------------
+    | Note: the discount is applied to the price we record locally (and to
+    | any local Payment row). It does not change the Stripe Price object
+    | itself — a paid plan still bills the full Stripe price unless a
+    | corresponding Stripe coupon/promotion code is separately configured.
+    */
+
+    $appliedCoupon = null;
+    $couponDiscount = 0.0;
+
+    if (! empty($validated['coupon_code'])) {
+        $appliedCoupon = Coupon::where('code', strtoupper($validated['coupon_code']))->first();
+
+        if (! $appliedCoupon) {
+            return response()->json(['message' => 'Invalid coupon code.'], 422);
+        }
+
+        $couponError = $appliedCoupon->eligibilityError($user->id, $plan, $validated['billing_cycle']);
+
+        if ($couponError) {
+            return response()->json(['message' => $couponError], 422);
+        }
+    }
 
 
     /*
@@ -319,6 +366,11 @@ class SubscriptionController extends Controller
     $price = $validated['billing_cycle'] === 'yearly'
         ? $plan->yearly_price
         : $plan->monthly_price;
+
+    if ($appliedCoupon) {
+        $couponDiscount = $appliedCoupon->discountFor((float) $price);
+        $price = round((float) $price - $couponDiscount, 2);
+    }
 
 
     /*
@@ -425,7 +477,9 @@ class SubscriptionController extends Controller
         $stripeSubscription,
         $paymentIntentId,
         $featureSnapshot,
-        $stillOpen
+        $stillOpen,
+        $appliedCoupon,
+        $couponDiscount
     ) {
 
         // The old records remain as history, but only the newly-created row
@@ -502,6 +556,25 @@ class SubscriptionController extends Controller
             'stripe_subscription_id' =>
                 $stripeSubscription?->id,
         ]);
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Record Coupon Redemption (if a coupon was applied)
+        |--------------------------------------------------------------------------
+        */
+
+        if ($appliedCoupon) {
+            CouponRedemption::create([
+                'coupon_id' => $appliedCoupon->id,
+                'user_id' => $user->id,
+                'subscription_id' => $subscription->id,
+                'discount_amount' => $couponDiscount,
+                'redeemed_at' => now(),
+            ]);
+
+            $appliedCoupon->increment('times_redeemed');
+        }
 
 
         /*

@@ -40,11 +40,15 @@ class SubscriptionsController extends Controller
                     'name' => ['required', 'string', 'max:50'],
                     'account_type' => ['nullable', 'in:normal,employer,both'],
                     'monthly_price' => ['required', 'numeric', 'min:0'],
+                    'monthly_original_price' => ['nullable', 'numeric', 'gte:monthly_price'],
                     'yearly_price' => ['required', 'numeric', 'min:0'],
+                    'yearly_original_price' => ['nullable', 'numeric', 'gte:yearly_price'],
                     'trial_days' => ['nullable', 'integer', 'min:0'],
                     'features' => $featuresRule,
                 ], [
                     'features.required' => 'Add at least one feature.',
+                    'monthly_original_price.gte' => 'The flat (MRP) monthly price must be greater than or equal to the discounted price.',
+                    'yearly_original_price.gte' => 'The flat (MRP) yearly price must be greater than or equal to the discounted price.',
                 ]);
 
                 $plan = SubscriptionPlan::findOrFail($validated['id']);
@@ -59,7 +63,10 @@ class SubscriptionsController extends Controller
                     // visible to normal and employer accounts alike.
                     'account_type' => $validated['account_type'] ?? 'both',
                     'monthly_price' => $validated['monthly_price'],
+                    // Blank = no strikethrough MRP shown for this cycle.
+                    'monthly_original_price' => $validated['monthly_original_price'] ?: null,
                     'yearly_price' => $validated['yearly_price'],
+                    'yearly_original_price' => $validated['yearly_original_price'] ?: null,
                     // Blank / 0 = no free trial on this plan.
                     'trial_days' => $validated['trial_days'] ?: null,
                     'features' => $this->splitFeatures($validated['features']),
@@ -76,11 +83,15 @@ class SubscriptionsController extends Controller
                 'name' => ['required', 'string', 'max:50'],
                 'account_type' => ['nullable', 'in:normal,employer,both'],
                 'monthly_price' => ['required', 'numeric', 'min:0'],
+                'monthly_original_price' => ['nullable', 'numeric', 'gte:monthly_price'],
                 'yearly_price' => ['required', 'numeric', 'min:0'],
+                'yearly_original_price' => ['nullable', 'numeric', 'gte:yearly_price'],
                 'trial_days' => ['nullable', 'integer', 'min:0'],
                 'features' => $featuresRule,
             ], [
                 'features.required' => 'Add at least one feature.',
+                'monthly_original_price.gte' => 'The flat (MRP) monthly price must be greater than or equal to the discounted price.',
+                'yearly_original_price.gte' => 'The flat (MRP) yearly price must be greater than or equal to the discounted price.',
             ]);
 
             $plan = SubscriptionPlan::create([
@@ -90,7 +101,10 @@ class SubscriptionsController extends Controller
                 // visible to normal and employer accounts alike.
                 'account_type' => $validated['account_type'] ?? 'both',
                 'monthly_price' => $validated['monthly_price'],
+                // Blank = no strikethrough MRP shown for this cycle.
+                'monthly_original_price' => $validated['monthly_original_price'] ?: null,
                 'yearly_price' => $validated['yearly_price'],
+                'yearly_original_price' => $validated['yearly_original_price'] ?: null,
                 'trial_days' => $validated['trial_days'] ?: null,
                 'features' => $this->splitFeatures($validated['features']),
                 'icon' => 'fa-crown',
