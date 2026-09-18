@@ -67,7 +67,7 @@ class SubmitSearchbugBackgroundCheck implements ShouldQueue
         }
 
         // Resolve the existing catalog row before making a paid provider call.
-        // A missing Level 2 setup must not cause Searchbug to be called twice.
+        // A missing Level 2 setup must not cause the provider to be called twice.
         $levelTwo = $levelPromotion->levelTwo();
 
         try {
@@ -101,7 +101,7 @@ class SubmitSearchbugBackgroundCheck implements ShouldQueue
     {
         $check = BackgroundCheck::find($this->backgroundCheckId);
         if ($check && $check->status === 'pending') {
-            $this->markFailed($check, 'PROVIDER_UNAVAILABLE', 'Searchbug could not be reached after retries.');
+            $this->markFailed($check, 'PROVIDER_UNAVAILABLE', 'Background-check provider could not be reached after retries.');
         }
     }
 
@@ -120,11 +120,11 @@ class SubmitSearchbugBackgroundCheck implements ShouldQueue
             $check->completed_at = now();
         } elseif ($classification === 'verified') {
             $check->status = 'clear';
-            $check->result_summary = 'Searchbug verification completed without an explicit failure.';
+            $check->result_summary = 'Background-check verification completed without an explicit failure.';
             $check->completed_at = now();
             $check->expires_at = now()->addDays((int) config('services.searchbug.valid_for_days', 365));
         } elseif ($classification === 'failed') {
-            $this->markFailed($check, 'PROVIDER_REJECTED', 'Searchbug rejected the background-check request.', false);
+            $this->markFailed($check, 'PROVIDER_REJECTED', 'Background-check provider rejected the background-check request.', false);
         }
     }
 

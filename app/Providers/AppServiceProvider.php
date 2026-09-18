@@ -9,7 +9,7 @@ use App\Models\UserVerification;
 use App\Observers\SubscriptionObserver;
 use App\Observers\UserVerificationObserver;
 use App\Services\Auth\Providers\FirebaseAuthVerificationProvider;
-use App\Services\BackgroundChecks\SearchbugClient;
+use App\Services\SignzyCriminalSearchService;
 use Illuminate\Support\ServiceProvider;
 use Kreait\Firebase\Contract\Auth as FirebaseAuth;
 
@@ -17,7 +17,7 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->app->bind(CriminalBackgroundCheckProvider::class, SearchbugClient::class);
+        $this->app->bind(CriminalBackgroundCheckProvider::class, SignzyCriminalSearchService::class);
 
         // Bind AuthVerificationProvider → FirebaseAuthVerificationProvider.
         // To switch providers (Twilio, Auth0, etc.), change ONLY this binding.

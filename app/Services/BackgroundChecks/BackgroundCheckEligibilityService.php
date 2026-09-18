@@ -16,7 +16,7 @@ class BackgroundCheckEligibilityService
 
     public function evaluate(User $user, bool $ignoreExistingCheck = false): EligibilityResult
     {
-        if (! config('services.searchbug.enabled')) {
+        if (! config('services.signzy.enabled')) {
             return new EligibilityResult(false, 'PROVIDER_DISABLED');
         }
 

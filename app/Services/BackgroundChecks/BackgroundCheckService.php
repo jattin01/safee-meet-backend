@@ -136,7 +136,7 @@ class BackgroundCheckService
                 'subscription_id' => $result->subscription->id,
                 'plan_id' => $result->subscription->plan_id,
                 'consent_id' => $result->consent->id,
-                'provider' => 'searchbug',
+                'provider' => 'signzy',
                 'check_type' => 'criminal',
                 'provider_reference_id' => 'pending:'.$id,
                 'idempotency_key' => $idempotencyKey,

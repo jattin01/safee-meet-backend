@@ -73,4 +73,13 @@ return [
         'sender_id' => env('TELESIGN_SENDER_ID'),  // optional, if using a branded sender
     ],
 
+    'signzy' => [
+        'enabled' => env('SIGNZY_ENABLED', env('SEARCHBUG_ENABLED', false)),
+        // Confirm with Signzy; preserve the previous provider's DOB format by default.
+        'dob_format' => env('SIGNZY_DOB_FORMAT', 'm/d/Y'),
+        'base_url' => env('SIGNZY_BASE_URL', 'https://api-preproduction.signzy.us'),
+        'token' => env('SIGNZY_API_TOKEN'),
+        'timeout' => env('SIGNZY_CRIMINAL_SEARCH_TIMEOUT', 30),
+    ],
+
 ];
