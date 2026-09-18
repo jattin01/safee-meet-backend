@@ -7,17 +7,31 @@ use App\DTOs\BackgroundChecks\ProviderResult;
 use App\DTOs\BackgroundChecks\VerifiedIdentityData;
 use App\Exceptions\BackgroundCheckProviderException;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class SignzyCriminalSearchService implements CriminalBackgroundCheckProvider
 {
     public function submit(VerifiedIdentityData $identity, string $idempotencyKey): ProviderResult
     {
+        Log::channel('background_check')->info('Signzy: submit() called', [
+            'idempotency_key' => $idempotencyKey,
+            'first_name' => $identity->firstName,
+            'last_name' => $identity->lastName,
+            'city' => $identity->city,
+            'state' => $identity->state,
+        ]);
+
         $result = $this->search([
             'first_name' => $identity->firstName,
             'last_name' => $identity->lastName,
             'dob' => $identity->dateOfBirth->format((string) config('services.signzy.dob_format', 'm/d/Y')),
             'person_city' => $identity->city,
             'person_state' => $identity->state,
+        ]);
+
+        Log::channel('background_check')->info('Signzy: submit() resolved', [
+            'idempotency_key' => $idempotencyKey,
+            'status' => $result['status'],
         ]);
 
         return new ProviderResult(
@@ -62,13 +76,31 @@ class SignzyCriminalSearchService implements CriminalBackgroundCheckProvider
         }
 
         $baseUrl = rtrim($this->requiredConfig('base_url'), '/');
+        $endpoint = "{$baseUrl}/api/v3/us/national-criminal-search";
+
+        Log::channel('background_check')->info('Signzy: sending request', [
+            'endpoint' => $endpoint,
+            'payload' => array_merge($payload, ['Ssn' => $payload['Ssn'] !== '' ? '***MASKED***' : '']),
+        ]);
+
         $response = Http::acceptJson()
             ->asJson()
             ->withHeaders(['Authorization' => $this->requiredConfig('token')])
             ->timeout((int) config('services.signzy.timeout', 30))
-            ->post("{$baseUrl}/api/v3/us/national-criminal-search", $payload);
+            ->post($endpoint, $payload);
+
+        Log::channel('background_check')->info('Signzy: response received', [
+            'endpoint' => $endpoint,
+            'status_code' => $response->status(),
+            'body' => $response->json() ?? $response->body(),
+        ]);
 
         if ($response->failed()) {
+            Log::channel('background_check')->error('Signzy: request failed', [
+                'endpoint' => $endpoint,
+                'status_code' => $response->status(),
+            ]);
+
             throw new BackgroundCheckProviderException(
                 message: 'Signzy request failed with HTTP '.$response->status().'.',
                 providerCode: 'HTTP_'.$response->status(),
@@ -78,10 +110,19 @@ class SignzyCriminalSearchService implements CriminalBackgroundCheckProvider
 
         $data = $response->json();
         if (! is_array($data)) {
+            Log::channel('background_check')->error('Signzy: non-JSON response', ['endpoint' => $endpoint]);
+
             throw new BackgroundCheckProviderException('Signzy returned a non-JSON response.', 'INVALID_RESPONSE');
         }
 
-        return $this->normalizeResponse($data);
+        $normalized = $this->normalizeResponse($data);
+
+        Log::channel('background_check')->info('Signzy: response normalized', [
+            'status' => $normalized['status'],
+            'record_count' => $normalized['record_count'],
+        ]);
+
+        return $normalized;
     }
 
     private function requiredConfig(string $key): string

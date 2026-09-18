@@ -10,6 +10,7 @@ use App\Services\BackgroundChecks\VerificationLevelPromotionService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class SubmitSearchbugBackgroundCheck implements ShouldQueue
@@ -28,10 +29,21 @@ class SubmitSearchbugBackgroundCheck implements ShouldQueue
         DiditVerifiedIdentityExtractor $extractor,
         VerificationLevelPromotionService $levelPromotion,
     ): void {
+        Log::channel('background_check')->info('Job: SubmitSearchbugBackgroundCheck started', [
+            'background_check_id' => $this->backgroundCheckId,
+            'attempt' => $this->attempts(),
+        ]);
+
         $check = BackgroundCheck::with(['verification', 'subscription.plan.comparisonFeatures', 'consent'])
             ->find($this->backgroundCheckId);
 
         if (! $check || $check->status !== 'pending' || $check->provider_status !== 'queued') {
+            Log::channel('background_check')->warning('Job: check not pending/queued, skipping', [
+                'background_check_id' => $this->backgroundCheckId,
+                'status' => $check?->status,
+                'provider_status' => $check?->provider_status,
+            ]);
+
             return;
         }
 
@@ -40,6 +52,14 @@ class SubmitSearchbugBackgroundCheck implements ShouldQueue
             || ! $check->consent
             || ! $check->consent->accepted
             || $check->consent->revoked_at) {
+            Log::channel('background_check')->info('Job: eligibility changed before submission', [
+                'background_check_id' => $check->id,
+                'user_id' => $check->user_id,
+                'subscription_status' => $check->subscription?->status,
+                'consent_accepted' => $check->consent?->accepted,
+                'consent_revoked_at' => $check->consent?->revoked_at,
+            ]);
+
             $this->markFailed($check, 'ELIGIBILITY_CHANGED', 'Background check eligibility changed before submission.');
 
             return;
@@ -48,12 +68,22 @@ class SubmitSearchbugBackgroundCheck implements ShouldQueue
         $feature = $check->subscription->plan?->comparisonFeatures
             ->firstWhere('slug', 'background_verification');
         if (! $feature || ! (bool) $feature->pivot->included) {
+            Log::channel('background_check')->info('Job: plan no longer eligible', [
+                'background_check_id' => $check->id,
+                'user_id' => $check->user_id,
+            ]);
+
             $this->markFailed($check, 'PLAN_NOT_ELIGIBLE', 'The active plan no longer includes background verification.');
 
             return;
         }
 
         if (! $check->verification) {
+            Log::channel('background_check')->info('Job: didit verification unavailable', [
+                'background_check_id' => $check->id,
+                'user_id' => $check->user_id,
+            ]);
+
             $this->markFailed($check, 'LEVEL_ONE_NOT_APPROVED', 'The Didit verification is unavailable.');
 
             return;
@@ -61,6 +91,12 @@ class SubmitSearchbugBackgroundCheck implements ShouldQueue
 
         $extraction = $extractor->extract($check->verification);
         if (! $extraction->identity) {
+            Log::channel('background_check')->info('Job: identity extraction not ready', [
+                'background_check_id' => $check->id,
+                'user_id' => $check->user_id,
+                'reason' => $extraction->reason,
+            ]);
+
             $this->markFailed($check, $extraction->reason, 'Verified identity details are not ready.');
 
             return;
@@ -70,9 +106,23 @@ class SubmitSearchbugBackgroundCheck implements ShouldQueue
         // A missing Level 2 setup must not cause the provider to be called twice.
         $levelTwo = $levelPromotion->levelTwo();
 
+        Log::channel('background_check')->info('Job: calling Signzy provider', [
+            'background_check_id' => $check->id,
+            'user_id' => $check->user_id,
+            'idempotency_key' => $check->idempotency_key,
+        ]);
+
         try {
             $result = $provider->submit($extraction->identity, (string) $check->idempotency_key);
         } catch (BackgroundCheckProviderException $exception) {
+            Log::channel('background_check')->error('Job: Signzy provider call failed', [
+                'background_check_id' => $check->id,
+                'user_id' => $check->user_id,
+                'provider_code' => $exception->providerCode,
+                'retryable' => $exception->retryable,
+                'message' => $exception->getMessage(),
+            ]);
+
             if ($exception->retryable) {
                 throw $exception;
             }
@@ -81,6 +131,13 @@ class SubmitSearchbugBackgroundCheck implements ShouldQueue
 
             return;
         }
+
+        Log::channel('background_check')->info('Job: Signzy provider returned result', [
+            'background_check_id' => $check->id,
+            'user_id' => $check->user_id,
+            'provider_status' => $result->providerStatus,
+            'classification' => $result->classification,
+        ]);
 
         DB::transaction(function () use ($check, $result, $levelPromotion, $levelTwo): void {
             $check->forceFill([
@@ -95,10 +152,21 @@ class SubmitSearchbugBackgroundCheck implements ShouldQueue
             $levelPromotion->promoteAfterSuccessfulCompletion($check, $levelTwo);
         });
 
+        Log::channel('background_check')->info('Job: SubmitSearchbugBackgroundCheck finished', [
+            'background_check_id' => $check->id,
+            'user_id' => $check->user_id,
+            'final_status' => $check->status,
+            'result_classification' => $check->result_classification,
+        ]);
     }
 
     public function failed(?Throwable $exception): void
     {
+        Log::channel('background_check')->error('Job: SubmitSearchbugBackgroundCheck failed permanently', [
+            'background_check_id' => $this->backgroundCheckId,
+            'exception' => $exception?->getMessage(),
+        ]);
+
         $check = BackgroundCheck::find($this->backgroundCheckId);
         if ($check && $check->status === 'pending') {
             $this->markFailed($check, 'PROVIDER_UNAVAILABLE', 'Background-check provider could not be reached after retries.');

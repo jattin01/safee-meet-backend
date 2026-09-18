@@ -9,6 +9,7 @@ use App\Models\UserConsent;
 use App\Services\BackgroundChecks\BackgroundCheckEligibilityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class BackgroundCheckController extends Controller
 {
@@ -16,6 +17,11 @@ class BackgroundCheckController extends Controller
     {
         $validated = $request->validate([
             'accepted' => ['required', 'boolean', 'accepted'],
+        ]);
+
+        Log::channel('background_check')->info('Consent: request received', [
+            'user_id' => $request->user()->id,
+            'accepted' => $validated['accepted'],
         ]);
 
         $version = (string) config('services.searchbug.consent_version');
@@ -36,6 +42,12 @@ class BackgroundCheckController extends Controller
                 'user_agent' => mb_substr((string) $request->userAgent(), 0, 2000),
             ]);
         }
+
+        Log::channel('background_check')->info('Consent: recorded, dispatching eligibility evaluation', [
+            'user_id' => $request->user()->id,
+            'consent_id' => $consent->id,
+            'version' => $consent->version,
+        ]);
 
         EvaluateBackgroundCheckEligibility::dispatch($request->user()->id)->afterCommit();
 
@@ -60,6 +72,14 @@ class BackgroundCheckController extends Controller
             ->first();
 
         $eligibilityResult = $eligibility->evaluate($request->user());
+
+        Log::channel('background_check')->info('Status: eligibility checked', [
+            'user_id' => $request->user()->id,
+            'eligible' => $eligibilityResult->eligible,
+            'reason' => $eligibilityResult->reason,
+            'check_id' => $check?->id,
+            'check_status' => $check?->status,
+        ]);
 
         return response()->json([
             'success' => true,

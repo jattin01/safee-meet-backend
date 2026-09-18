@@ -10,6 +10,7 @@ use App\Models\BackgroundCheck;
 use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class BackgroundCheckService
@@ -21,6 +22,13 @@ class BackgroundCheckService
     public function queueIfEligible(User $user): EligibilityResult
     {
         $result = $this->eligibility->evaluate($user);
+
+        Log::channel('background_check')->info('Service: queueIfEligible evaluated', [
+            'user_id' => $user->id,
+            'eligible' => $result->eligible,
+            'reason' => $result->reason,
+        ]);
+
         if (! $result->eligible || ! $result->identity) {
             if (config('services.didit.refresh_incomplete_decisions')
                 && $result->verification?->didit_session_id
@@ -48,6 +56,12 @@ class BackgroundCheckService
                 throw $exception;
             }
         }
+
+        Log::channel('background_check')->info('Service: background check created, dispatching Signzy submission job', [
+            'user_id' => $user->id,
+            'background_check_id' => $check->id,
+            'idempotency_key' => $idempotencyKey,
+        ]);
 
         SubmitSearchbugBackgroundCheck::dispatch($check->id)->afterCommit();
 

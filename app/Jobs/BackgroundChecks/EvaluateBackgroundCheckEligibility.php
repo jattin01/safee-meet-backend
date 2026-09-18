@@ -7,6 +7,7 @@ use App\Services\BackgroundChecks\BackgroundCheckService;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\Log;
 
 class EvaluateBackgroundCheckEligibility implements ShouldBeUnique, ShouldQueue
 {
@@ -23,9 +24,25 @@ class EvaluateBackgroundCheckEligibility implements ShouldBeUnique, ShouldQueue
 
     public function handle(BackgroundCheckService $service): void
     {
+        Log::channel('background_check')->info('Job: EvaluateBackgroundCheckEligibility started', [
+            'user_id' => $this->userId,
+        ]);
+
         $user = User::find($this->userId);
-        if ($user) {
-            $service->queueIfEligible($user);
+        if (! $user) {
+            Log::channel('background_check')->warning('Job: EvaluateBackgroundCheckEligibility user not found', [
+                'user_id' => $this->userId,
+            ]);
+
+            return;
         }
+
+        $result = $service->queueIfEligible($user);
+
+        Log::channel('background_check')->info('Job: EvaluateBackgroundCheckEligibility finished', [
+            'user_id' => $this->userId,
+            'eligible' => $result->eligible,
+            'reason' => $result->reason,
+        ]);
     }
 }
