@@ -137,8 +137,17 @@ class SignzyCriminalSearchService implements CriminalBackgroundCheckProvider
 
     private function normalizeResponse(array $response): array
     {
-        $records = data_get($response, 'result.crimRecords');
-        $count = data_get($response, 'result.crimRecordCount');
+        $result = data_get($response, 'result');
+
+        // No-match responses return `result` as an empty array/list instead of
+        // the {crimRecords, crimRecordCount} object shape used when records exist.
+        if (is_array($result) && $result === []) {
+            $records = [];
+            $count = 0;
+        } else {
+            $records = data_get($response, 'result.crimRecords');
+            $count = data_get($response, 'result.crimRecordCount');
+        }
 
         // Missing or malformed results must not become a successful clear check.
         if (! is_array($records) || ! array_is_list($records)

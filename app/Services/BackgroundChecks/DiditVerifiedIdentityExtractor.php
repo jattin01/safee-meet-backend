@@ -47,6 +47,12 @@ class DiditVerifiedIdentityExtractor
             'country' => $this->string($address['country'] ?? null),
         ];
 
+        foreach (['first_name', 'last_name', 'city', 'state', 'country'] as $field) {
+            if ($this->isPlaceholder($values[$field])) {
+                $values[$field] = '';
+            }
+        }
+
         $required = collect($values)->except('postal_code')->all();
         $missing = array_keys(array_filter($required, fn (string $value): bool => $value === ''));
 
@@ -62,9 +68,9 @@ class DiditVerifiedIdentityExtractor
             );
         }
 
-        if (! $this->isUnitedStates($values['country'])) {
-            return new IdentityExtractionResult(null, 'COUNTRY_NOT_SUPPORTED');
-        }
+        // if (! $this->isUnitedStates($values['country'])) {
+        //     return new IdentityExtractionResult(null, 'COUNTRY_NOT_SUPPORTED');
+        // }
 
         try {
             $dateOfBirth = CarbonImmutable::parse($values['date_of_birth'])->startOfDay();
@@ -82,7 +88,7 @@ class DiditVerifiedIdentityExtractor
                 lastName: $values['last_name'],
                 dateOfBirth: $dateOfBirth,
                 city: $values['city'],
-                state: mb_strtoupper($values['state']),
+                state: $this->normalizeState($values['state']),
                 postalCode: $values['postal_code'],
                 country: 'US',
             ),
@@ -94,6 +100,38 @@ class DiditVerifiedIdentityExtractor
     {
         return is_string($value) ? trim($value) : '';
     }
+
+    private function isPlaceholder(string $value): bool
+    {
+        return in_array(mb_strtoupper($value), ['N/A', 'NA', 'N.A', 'N.A.', 'NIL', 'NONE', 'UNKNOWN', '-'], true);
+    }
+
+    private function normalizeState(string $state): string
+    {
+        $upper = mb_strtoupper(trim($state));
+
+        if (mb_strlen($upper) === 2) {
+            return $upper;
+        }
+
+        return self::US_STATE_CODES[$upper] ?? $upper;
+    }
+
+    private const US_STATE_CODES = [
+        'ALABAMA' => 'AL', 'ALASKA' => 'AK', 'ARIZONA' => 'AZ', 'ARKANSAS' => 'AR',
+        'CALIFORNIA' => 'CA', 'COLORADO' => 'CO', 'CONNECTICUT' => 'CT', 'DELAWARE' => 'DE',
+        'FLORIDA' => 'FL', 'GEORGIA' => 'GA', 'HAWAII' => 'HI', 'IDAHO' => 'ID',
+        'ILLINOIS' => 'IL', 'INDIANA' => 'IN', 'IOWA' => 'IA', 'KANSAS' => 'KS',
+        'KENTUCKY' => 'KY', 'LOUISIANA' => 'LA', 'MAINE' => 'ME', 'MARYLAND' => 'MD',
+        'MASSACHUSETTS' => 'MA', 'MICHIGAN' => 'MI', 'MINNESOTA' => 'MN', 'MISSISSIPPI' => 'MS',
+        'MISSOURI' => 'MO', 'MONTANA' => 'MT', 'NEBRASKA' => 'NE', 'NEVADA' => 'NV',
+        'NEW HAMPSHIRE' => 'NH', 'NEW JERSEY' => 'NJ', 'NEW MEXICO' => 'NM', 'NEW YORK' => 'NY',
+        'NORTH CAROLINA' => 'NC', 'NORTH DAKOTA' => 'ND', 'OHIO' => 'OH', 'OKLAHOMA' => 'OK',
+        'OREGON' => 'OR', 'PENNSYLVANIA' => 'PA', 'RHODE ISLAND' => 'RI', 'SOUTH CAROLINA' => 'SC',
+        'SOUTH DAKOTA' => 'SD', 'TENNESSEE' => 'TN', 'TEXAS' => 'TX', 'UTAH' => 'UT',
+        'VERMONT' => 'VT', 'VIRGINIA' => 'VA', 'WASHINGTON' => 'WA', 'WEST VIRGINIA' => 'WV',
+        'WISCONSIN' => 'WI', 'WYOMING' => 'WY', 'DISTRICT OF COLUMBIA' => 'DC',
+    ];
 
     private function isUnitedStates(string $country): bool
     {
