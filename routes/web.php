@@ -108,6 +108,7 @@ Route::middleware('auth:admin')->group(function () {
     Route::get('/revenue', [RevenueController::class, 'index'])->name('revenue');
     Route::get('/revenue/usernames', [RevenueController::class, 'usernames'])->name('revenue.usernamefilter');
     Route::get('/revenue/export', [RevenueController::class, 'export'])->name('revenue.export');
+    Route::get('/revenue/trend', [RevenueController::class, 'trend'])->name('revenue.trend');
     Route::get('/terms', [TermsController::class, 'index'])->name('terms.index');
     Route::get('/users/{id}', [UserController::class, 'show'])->name('users.show');
     Route::post('/users/{id}/job-title', [UserController::class, 'updateJobTitle'])->name('users.job-title.update');

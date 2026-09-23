@@ -6,33 +6,97 @@
 <div class="">
 
     {{-- Page Header --}}
-    <div style="margin-bottom:24px;">
-        <h1 style="font-size:22px; font-weight:700; color:#fff; margin:0 0 4px 0;">Revenue Analytics</h1>
-        <p style="font-size:12px; color:#6b7280; margin:0;">Financial overview · June 2026</p>
+    <div style="margin-bottom:24px; display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; justify-content:space-between;">
+        <div>
+            <h1 style="font-size:22px; font-weight:700; color:#fff; margin:0 0 4px 0;">Revenue Analytics</h1>
+            <p style="font-size:12px; color:#6b7280; margin:0;">Financial overview · {{ \Illuminate\Support\Carbon::parse($rangeStart)->format('d M Y') }} – {{ \Illuminate\Support\Carbon::parse($rangeEnd)->format('d M Y') }}</p>
+        </div>
+
+        {{-- Reporting period selector --}}
+        <form id="summary-range-form" class="flex flex-wrap items-end gap-2">
+            <div>
+                <label for="period" class="mb-1 block text-xs font-medium text-gray-400">Reporting Period</label>
+                <select id="period" name="period"
+                    class="rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]">
+                    @foreach([
+                        'today' => 'Today',
+                        'yesterday' => 'Yesterday',
+                        'last_7_days' => 'Last 7 Days',
+                        'last_30_days' => 'Last 30 Days',
+                        'this_month' => 'This Month',
+                        'last_month' => 'Last Month',
+                        'this_year' => 'This Year',
+                        'custom' => 'Custom Range',
+                    ] as $value => $label)
+                        <option value="{{ $value }}" @selected($period === $value)>{{ $label }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div id="custom-range-fields" class="flex items-end gap-2" style="{{ $period === 'custom' ? '' : 'display:none;' }}">
+                <div>
+                    <label for="range_start" class="mb-1 block text-xs font-medium text-gray-400">From</label>
+                    <input id="range_start" name="range_start" type="date" value="{{ $rangeStart }}"
+                        class="rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]">
+                </div>
+                <div>
+                    <label for="range_end" class="mb-1 block text-xs font-medium text-gray-400">To</label>
+                    <input id="range_end" name="range_end" type="date" value="{{ $rangeEnd }}"
+                        class="rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]">
+                </div>
+            </div>
+            <button type="submit" class="rounded-lg bg-[#DC131C] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#b50f16]">
+                Apply
+            </button>
+        </form>
     </div>
 
     {{-- Stat Cards --}}
-   <div class="grid md:grid-cols-3 gap-[15px]" style=" margin-bottom:24px;">
+    <div class="grid md:grid-cols-3 gap-[15px]" style="margin-bottom:24px;">
+
+        {{-- Total Revenue --}}
+        <div style="background:#000; border:1px solid #000; border-radius:12px; padding:20px;">
+            <div style="font-size:11px; color:#6b7280; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.05em;">Total Revenue</div>
+            <div style="font-size:26px; font-weight:700; color:#fff; margin-bottom:6px;">${{ number_format($summary['total_revenue'], 2) }}</div>
+            <div style="font-size:11px; color:#6b7280;">Collected in selected period</div>
+        </div>
 
         {{-- MRR --}}
         <div style="background:#000; border:1px solid #000; border-radius:12px; padding:20px;">
             <div style="font-size:11px; color:#6b7280; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.05em;">MRR</div>
-            <div style="font-size:26px; font-weight:700; color:#fff; margin-bottom:6px;">$284,721</div>
-            <div style="font-size:11px; color:#22c55e;">+23% from last month</div>
+            <div style="font-size:26px; font-weight:700; color:#fff; margin-bottom:6px;">${{ number_format($summary['mrr'], 2) }}</div>
+            <div style="font-size:11px; color:#6b7280;">From active subscriptions (yearly normalized to monthly)</div>
         </div>
 
         {{-- ARR --}}
         <div style="background:#000; border:1px solid #000; border-radius:12px; padding:20px;">
             <div style="font-size:11px; color:#6b7280; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.05em;">ARR</div>
-            <div style="font-size:26px; font-weight:700; color:#fff; margin-bottom:6px;">$3.4M</div>
-            <div style="font-size:11px; color:#22c55e;">+31% from last month</div>
+            <div style="font-size:26px; font-weight:700; color:#fff; margin-bottom:6px;">${{ number_format($summary['arr'], 2) }}</div>
+            <div style="font-size:11px; color:#6b7280;">MRR × 12</div>
         </div>
 
-        {{-- Churn Rate --}}
+        {{-- Active Subscriptions --}}
         <div style="background:#000; border:1px solid #000; border-radius:12px; padding:20px;">
-            <div style="font-size:11px; color:#6b7280; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.05em;">Churn Rate</div>
-            <div style="font-size:26px; font-weight:700; color:#fff; margin-bottom:6px;">2.1%</div>
-            <div style="font-size:11px; color:#22c55e;">-0.4% from last month</div>
+            <div style="font-size:11px; color:#6b7280; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.05em;">Active Subscriptions</div>
+            <div style="font-size:26px; font-weight:700; color:#fff; margin-bottom:6px;">{{ number_format($summary['active_subscriptions']) }}</div>
+            <div style="font-size:11px; color:#6b7280;">Currently paid &amp; active</div>
+        </div>
+
+        {{-- Succeeded Payments --}}
+        <div style="background:#000; border:1px solid #000; border-radius:12px; padding:20px;">
+            <div style="font-size:11px; color:#6b7280; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.05em;">Successful Payments</div>
+            <div style="font-size:26px; font-weight:700; color:#22c55e; margin-bottom:6px;">{{ number_format($summary['payments']['succeeded']) }}</div>
+            <div style="font-size:11px; color:#6b7280;">In selected period</div>
+        </div>
+
+        {{-- Pending / Failed Payments --}}
+        <div style="background:#000; border:1px solid #000; border-radius:12px; padding:20px;">
+            <div style="font-size:11px; color:#6b7280; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.05em;">Pending / Failed</div>
+            <div style="font-size:26px; font-weight:700; color:#fff; margin-bottom:6px;">
+                <span style="color:#facc15;">{{ number_format($summary['payments']['pending']) }}</span>
+                <span style="color:#6b7280; font-size:16px;">/</span>
+                <span style="color:#ef4444;">{{ number_format($summary['payments']['failed']) }}</span>
+            </div>
+            <div style="font-size:11px; color:#6b7280;">Pending / Failed in selected period{{ $summary['payments']['refunded'] > 0 ? ' · '.$summary['payments']['refunded'].' refunded' : '' }}</div>
         </div>
 
     </div>
@@ -40,75 +104,31 @@
     {{-- Revenue Trend Chart --}}
     <div style="background:#000; border:1px solid #000; border-radius:12px; padding:24px;">
 
-        <h2 style="font-size:15px; font-weight:600; color:#fff; margin:0 0 20px 0;">Revenue Trend</h2>
+        <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; margin-bottom:20px;">
+            <h2 style="font-size:15px; font-weight:600; color:#fff; margin:0;">Revenue Trend</h2>
 
-        {{-- Chart Container --}}
-        <div style="position:relative; width:100%; overflow-x:auto;">
-            <svg viewBox="0 0 700 220" xmlns="http://www.w3.org/2000/svg" style="width:100%; min-width:400px; display:block;">
+            <div class="inline-flex rounded-lg border border-[#2a2d3e] p-1" id="trend-granularity">
+                @foreach(['daily' => 'Daily', 'monthly' => 'Monthly', 'yearly' => 'Yearly'] as $value => $label)
+                    <button type="button" data-granularity="{{ $value }}"
+                        class="trend-granularity-btn rounded-md px-3 py-1.5 text-xs font-medium text-gray-400 transition"
+                        style="{{ $value === 'daily' ? 'background:#DC131C;color:#fff;' : '' }}">
+                        {{ $label }}
+                    </button>
+                @endforeach
+            </div>
+        </div>
 
-                {{-- Y Axis Labels --}}
-                <text x="38" y="20" font-size="10" fill="#6b7280" text-anchor="end">$300k</text>
-                <text x="38" y="62" font-size="10" fill="#6b7280" text-anchor="end">$225k</text>
-                <text x="38" y="104" font-size="10" fill="#6b7280" text-anchor="end">$150k</text>
-                <text x="38" y="146" font-size="10" fill="#6b7280" text-anchor="end">$75k</text>
-                <text x="38" y="188" font-size="10" fill="#6b7280" text-anchor="end">$0</text>
-
-                {{-- Horizontal Grid Lines --}}
-                <line x1="45" y1="16" x2="690" y2="16" stroke="#2a2d3e" stroke-width="1"/>
-                <line x1="45" y1="58" x2="690" y2="58" stroke="#2a2d3e" stroke-width="1"/>
-                <line x1="45" y1="100" x2="690" y2="100" stroke="#2a2d3e" stroke-width="1"/>
-                <line x1="45" y1="142" x2="690" y2="142" stroke="#2a2d3e" stroke-width="1"/>
-                <line x1="45" y1="184" x2="690" y2="184" stroke="#2a2d3e" stroke-width="1"/>
-
-                {{-- Filled area under line (gradient) --}}
-                <defs>
-                    <linearGradient id="redGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stop-color="#ef4444" stop-opacity="0.3"/>
-                        <stop offset="100%" stop-color="#ef4444" stop-opacity="0.02"/>
-                    </linearGradient>
-                </defs>
-
-                {{-- Area fill: Jan=150, Feb=155, Mar=162, Apr=172, May=185, Jun=194 mapped to SVG coords --}}
-                {{-- Y: value mapped: 0=$0 => y=184, $300k => y=16. Range=168px for $300k --}}
-                {{-- Jan: $150k => y=184-(150/300*168)=184-84=100 --}}
-                {{-- Feb: $158k => y=184-(158/300*168)=184-88.5=95.5 --}}
-                {{-- Mar: $175k => y=184-(175/300*168)=184-98=86 --}}
-                {{-- Apr: $205k => y=184-(205/300*168)=184-114.8=69.2 --}}
-                {{-- May: $248k => y=184-(248/300*168)=184-138.9=45.1 --}}
-                {{-- Jun: $285k => y=184-(285/300*168)=184-159.6=24.4 --}}
-
-                <polygon
-                    points="45,100 163,95 281,86 399,69 517,45 690,24 690,184 45,184"
-                    fill="url(#redGrad)"
-                />
-
-                {{-- Line --}}
-                <polyline
-                    points="45,100 163,95 281,86 399,69 517,45 690,24"
-                    fill="none"
-                    stroke="#ef4444"
-                    stroke-width="2.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                />
-
-                {{-- Dots --}}
-                <circle cx="45"  cy="100" r="4" fill="#ef4444"/>
-                <circle cx="163" cy="95"  r="4" fill="#ef4444"/>
-                <circle cx="281" cy="86"  r="4" fill="#ef4444"/>
-                <circle cx="399" cy="69"  r="4" fill="#ef4444"/>
-                <circle cx="517" cy="45"  r="4" fill="#ef4444"/>
-                <circle cx="690" cy="24"  r="4" fill="#ef4444"/>
-
-                {{-- X Axis Labels --}}
-                <text x="45"  y="202" font-size="10" fill="#6b7280" text-anchor="middle">Jan</text>
-                <text x="163" y="202" font-size="10" fill="#6b7280" text-anchor="middle">Feb</text>
-                <text x="281" y="202" font-size="10" fill="#6b7280" text-anchor="middle">Mar</text>
-                <text x="399" y="202" font-size="10" fill="#6b7280" text-anchor="middle">Apr</text>
-                <text x="517" y="202" font-size="10" fill="#6b7280" text-anchor="middle">May</text>
-                <text x="690" y="202" font-size="10" fill="#6b7280" text-anchor="middle">Jun</text>
-
-            </svg>
+        <div style="position:relative; width:100%; min-height:260px;">
+            <canvas id="revenueTrendChart" height="90"></canvas>
+            <div id="trend-empty-state" class="hidden" style="position:absolute; inset:0; display:none; align-items:center; justify-content:center; color:#6b7280; font-size:13px;">
+                No revenue data for this period.
+            </div>
+            <div id="trend-error-state" class="hidden" style="position:absolute; inset:0; display:none; align-items:center; justify-content:center; color:#ef4444; font-size:13px;">
+                Couldn't load revenue trend. Please try again.
+            </div>
+            <div id="trend-loading-state" style="position:absolute; inset:0; display:none; align-items:center; justify-content:center; color:#6b7280; font-size:13px;">
+                Loading…
+            </div>
         </div>
 
     </div>
@@ -131,12 +151,12 @@
                 </div>
             @endif
 
-            <form id="transactions-filter-form" method="GET" action="{{ route('revenue') }}" class="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(160px,1fr)_minmax(180px,1fr)_minmax(160px,1fr)_minmax(160px,1fr)_auto] xl:items-end">
+            <form id="transactions-filter-form" method="GET" action="{{ route('revenue') }}" class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <div>
-                    <label for="username" class="mb-2 block text-xs font-medium text-gray-400">Username</label>
-                    <input id="username" name="username" type="text" autocomplete="off" placeholder="Search by username"
+                    <label for="search" class="mb-2 block text-xs font-medium text-gray-400">Search (Username / Mobile / Plan)</label>
+                    <input id="search" name="search" type="text" autocomplete="off" placeholder="Search by username, mobile or plan"
                         list="username-suggestions"
-                        value="{{ $filters['username'] ?? '' }}"
+                        value="{{ $filters['search'] ?? '' }}"
                         class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]">
                     <datalist id="username-suggestions"></datalist>
                 </div>
@@ -162,6 +182,32 @@
                 </div>
 
                 <div>
+                    <label for="subscription_status" class="mb-2 block text-xs font-medium text-gray-400">Subscription Status</label>
+                    <select id="subscription_status" name="subscription_status"
+                        class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2.5 text-sm text-white outline-none focus:border-[#DC131C]">
+                        <option value="">All</option>
+                        @foreach(['incomplete', 'trial', 'active', 'expired', 'cancelled'] as $status)
+                            <option value="{{ $status }}" @selected(($filters['subscription_status'] ?? '') === $status)>
+                                {{ \Illuminate\Support\Str::headline($status) }}
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <div>
+                    <label for="billing_cycle" class="mb-2 block text-xs font-medium text-gray-400">Billing Cycle</label>
+                    <select id="billing_cycle" name="billing_cycle"
+                        class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2.5 text-sm text-white outline-none focus:border-[#DC131C]">
+                        <option value="">All</option>
+                        @foreach(['trial', 'monthly', 'yearly'] as $cycle)
+                            <option value="{{ $cycle }}" @selected(($filters['billing_cycle'] ?? '') === $cycle)>
+                                {{ \Illuminate\Support\Str::headline($cycle) }}
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <div>
                     <label for="start_date" class="mb-2 block text-xs font-medium text-gray-400">Start Date</label>
                     <input id="start_date" name="start_date" type="date" value="{{ $filters['start_date'] ?? '' }}"
                         class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]">
@@ -173,14 +219,14 @@
                         class="w-full rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] px-3 py-2 text-sm text-white outline-none focus:border-[#DC131C]">
                 </div>
 
-                <div class="flex gap-2 md:col-span-2 xl:col-span-1">
+                <div class="flex gap-2 md:col-span-2 xl:col-span-4">
                     <button type="submit"
                         class="rounded-lg bg-[#DC131C] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#b50f16]">
                         Filter
                     </button>
                     <button type="button" id="transactions-filter-reset"
                         class="rounded-lg border border-[#343746] px-4 py-2.5 text-sm font-semibold text-gray-300 transition hover:border-gray-500 hover:text-white">
-                        Clear
+                        Clear Filters
                     </button>
                     <button type="button" id="transactions-export"
                         class="rounded-lg border border-[#343746] px-4 py-2.5 text-sm font-semibold text-gray-300 transition hover:border-gray-500 hover:text-white">
@@ -204,6 +250,153 @@
     }
 </style>
 
+{{-- Reporting period: toggle custom range fields, submit as query string --}}
+<script>
+(function () {
+    const periodSelect = document.getElementById('period');
+    const customFields = document.getElementById('custom-range-fields');
+    const form = document.getElementById('summary-range-form');
+
+    periodSelect.addEventListener('change', () => {
+        customFields.style.display = periodSelect.value === 'custom' ? 'flex' : 'none';
+    });
+
+    form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const params = new URLSearchParams(new FormData(form)).toString();
+        window.location.href = '{{ route('revenue') }}' + (params ? '?' + params : '');
+    });
+})();
+</script>
+
+{{-- Revenue trend chart: Chart.js, fed by /revenue/trend, period selector --}}
+<script>
+(function () {
+    const chartGridColor = '#252b3b';
+    const chartLabelColor = '#8f98ad';
+    const canvas = document.getElementById('revenueTrendChart');
+    const emptyState = document.getElementById('trend-empty-state');
+    const errorState = document.getElementById('trend-error-state');
+    const loadingState = document.getElementById('trend-loading-state');
+    const trendUrl = '{{ route('revenue.trend') }}';
+    const currentPeriod = @json($period);
+    const currentRangeStart = @json($rangeStart);
+    const currentRangeEnd = @json($rangeEnd);
+    let granularity = 'daily';
+    let chart = null;
+
+    function setState(state) {
+        canvas.style.display = state === 'ready' ? 'block' : 'none';
+        emptyState.style.display = state === 'empty' ? 'flex' : 'none';
+        errorState.style.display = state === 'error' ? 'flex' : 'none';
+        loadingState.style.display = state === 'loading' ? 'flex' : 'none';
+    }
+
+    async function loadTrend() {
+        setState('loading');
+
+        const params = new URLSearchParams({
+            granularity,
+            period: currentPeriod,
+            range_start: currentRangeStart,
+            range_end: currentRangeEnd,
+        });
+
+        try {
+            const response = await fetch(`${trendUrl}?${params.toString()}`, {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            });
+
+            if (!response.ok) {
+                setState('error');
+                return;
+            }
+
+            const data = await response.json();
+            const points = data.points || [];
+            const hasRevenue = points.some((point) => point.value > 0);
+
+            if (!points.length || !hasRevenue) {
+                setState('empty');
+                if (chart) chart.destroy();
+                chart = null;
+                return;
+            }
+
+            const labels = points.map((point) => point.label);
+            const values = points.map((point) => point.value);
+
+            if (chart) {
+                chart.data.labels = labels;
+                chart.data.datasets[0].data = values;
+                chart.update();
+            } else {
+                chart = new Chart(canvas, {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: [{
+                            label: 'Revenue',
+                            data: values,
+                            borderColor: '#ef4444',
+                            backgroundColor: 'rgba(239,68,68,0.15)',
+                            fill: true,
+                            tension: 0.35,
+                            pointRadius: 4,
+                            pointBackgroundColor: '#ef4444',
+                            borderWidth: 2.5,
+                        }],
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: (ctx) => '$' + Number(ctx.parsed.y).toLocaleString(undefined, { minimumFractionDigits: 2 }),
+                                },
+                            },
+                        },
+                        scales: {
+                            x: { grid: { color: chartGridColor }, ticks: { color: chartLabelColor, font: { size: 10 } } },
+                            y: {
+                                grid: { color: chartGridColor },
+                                ticks: {
+                                    color: chartLabelColor,
+                                    font: { size: 10 },
+                                    callback: (value) => '$' + Number(value).toLocaleString(),
+                                },
+                                beginAtZero: true,
+                            },
+                        },
+                    },
+                });
+            }
+
+            setState('ready');
+        } catch (e) {
+            setState('error');
+        }
+    }
+
+    document.querySelectorAll('.trend-granularity-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            granularity = btn.dataset.granularity;
+            document.querySelectorAll('.trend-granularity-btn').forEach((b) => {
+                b.style.background = '';
+                b.style.color = '';
+            });
+            btn.style.background = '#DC131C';
+            btn.style.color = '#fff';
+            loadTrend();
+        });
+    });
+
+    loadTrend();
+})();
+</script>
+
 {{-- Transactions table: AJAX filtering + pagination --}}
 <script>
 (function () {
@@ -211,7 +404,7 @@
     const form = document.getElementById('transactions-filter-form');
     const resetBtn = document.getElementById('transactions-filter-reset');
     const exportBtn = document.getElementById('transactions-export');
-    const usernameInput = document.getElementById('username');
+    const usernameInput = document.getElementById('search');
     const usernameSuggestions = document.getElementById('username-suggestions');
     const baseUrl = wrap.dataset.baseUrl;
     const usernamesUrl = '{{ route('revenue.usernamefilter') }}';
