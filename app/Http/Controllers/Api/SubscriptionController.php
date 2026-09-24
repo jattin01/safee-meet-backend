@@ -123,12 +123,25 @@ class SubscriptionController extends Controller
     {
         $subscription = $request->user()
             ->activeSubscription()
-            ->with('plan.planFeatures.feature')
+            ->with('plan.comparisonFeatures:id,slug,name,type')
             ->first();
 
         if (! $subscription) {
             return response()->json(['message' => 'No active subscription'], 404);
         }
+
+        $plan = $subscription->plan;
+        $catalogFeatures = $plan->comparisonFeatures->map(fn (Feature $feature) => [
+            'id' => $feature->id,
+            'slug' => $feature->slug,
+            'name' => $feature->name,
+            'type' => $feature->type,
+            'value' => $feature->pivot->value,
+        ])->values();
+
+        $plan->features = $catalogFeatures;
+
+        $plan->unsetRelation('comparisonFeatures');
 
         return response()->json($subscription);
     }

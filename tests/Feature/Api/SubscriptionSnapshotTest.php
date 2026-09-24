@@ -69,14 +69,14 @@ it('stores the selected plan feature matrix as an immutable subscription snapsho
     expect($snapshot->fresh()->safee_pin_search)->toBe('3');
 });
 
-it('includes the current plans dynamic features without changing its legacy features', function () {
+it('enriches the current plans existing features with dynamic catalog data', function () {
     $plan = SubscriptionPlan::create([
         'name' => 'Current Plan',
         'slug' => 'free_trial',
         'monthly_price' => 0,
         'yearly_price' => 0,
         'trial_days' => 7,
-        'features' => ['Legacy feature label'],
+        'features' => ['Current Plan Feature', 'Legacy feature label'],
         'sort_order' => 1,
         'is_active' => true,
     ]);
@@ -91,6 +91,18 @@ it('includes the current plans dynamic features without changing its legacy feat
     $plan->comparisonFeatures()->attach($feature->id, [
         'included' => true,
         'value' => 'Unlimited',
+    ]);
+    $dynamicOnlyFeature = Feature::create([
+        'slug' => 'dynamic_only_feature',
+        'name' => 'Dynamic Only Feature',
+        'type' => 'boolean',
+        'group' => 'Test',
+        'sort_order' => 2,
+        'is_active' => true,
+    ]);
+    $plan->comparisonFeatures()->attach($dynamicOnlyFeature->id, [
+        'included' => true,
+        'value' => null,
     ]);
 
     $otherPlan = SubscriptionPlan::create([
@@ -113,14 +125,19 @@ it('includes the current plans dynamic features without changing its legacy feat
     $this->getJson('/api/v1/subscriptions/current')
         ->assertOk()
         ->assertJsonPath('plan.id', $plan->id)
-        ->assertJsonPath('plan.features', ['Legacy feature label'])
-        ->assertJsonCount(1, 'plan.plan_features')
-        ->assertJsonPath('plan.plan_features.0.plan_id', $plan->id)
-        ->assertJsonPath('plan.plan_features.0.feature_id', $feature->id)
-        ->assertJsonPath('plan.plan_features.0.included', true)
-        ->assertJsonPath('plan.plan_features.0.value', 'Unlimited')
-        ->assertJsonPath('plan.plan_features.0.feature.slug', 'current_plan_feature')
-        ->assertJsonPath('plan.plan_features.0.feature.is_active', true);
+        ->assertJsonCount(2, 'plan.features')
+        ->assertJsonPath('plan.features.0.id', $feature->id)
+        ->assertJsonPath('plan.features.0.slug', 'current_plan_feature')
+        ->assertJsonPath('plan.features.0.name', 'Current Plan Feature')
+        ->assertJsonPath('plan.features.0.type', 'limit')
+        ->assertJsonPath('plan.features.0.value', 'Unlimited')
+        ->assertJsonPath('plan.features.1.id', $dynamicOnlyFeature->id)
+        ->assertJsonPath('plan.features.1.slug', 'dynamic_only_feature')
+        ->assertJsonPath('plan.features.1.name', 'Dynamic Only Feature')
+        ->assertJsonPath('plan.features.1.type', 'boolean')
+        ->assertJsonPath('plan.features.1.value', null)
+        ->assertJsonMissingPath('plan.plan_features')
+        ->assertJsonMissingPath('plan.comparison_features');
 });
 
 it('discontinues the old snapshot and gives an upgrade a fresh usage allowance', function () {
