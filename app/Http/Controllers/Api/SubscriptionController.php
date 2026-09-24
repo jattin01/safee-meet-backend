@@ -121,7 +121,10 @@ class SubscriptionController extends Controller
      */
     public function current(Request $request): JsonResponse
     {
-        $subscription = $request->user()->activeSubscription()->with('plan')->first();
+        $subscription = $request->user()
+            ->activeSubscription()
+            ->with('plan.planFeatures.feature')
+            ->first();
 
         if (! $subscription) {
             return response()->json(['message' => 'No active subscription'], 404);

@@ -17,14 +17,16 @@ class SignzyCriminalSearchService implements CriminalBackgroundCheckProvider
             'idempotency_key' => $idempotencyKey,
             'first_name' => $identity->firstName,
             'last_name' => $identity->lastName,
+            'city' => $identity->city,
+            'state' => $identity->state,
         ]);
 
         $result = $this->search([
             'first_name' => $identity->firstName,
             'last_name' => $identity->lastName,
             'dob' => $identity->dateOfBirth->format((string) config('services.signzy.dob_format', 'm/d/Y')),
-            // 'person_city' => $identity->city,
-            // 'person_state' => $identity->state,
+            'person_city' => $identity->city,
+            'person_state' => $identity->state,
         ]);
 
         Log::channel('background_check')->info('Signzy: submit() resolved', [
@@ -51,26 +53,26 @@ class SignzyCriminalSearchService implements CriminalBackgroundCheckProvider
     public function search(array $data): array
     {
         $payload = [
+            'businessName' => $data['business_name'] ?? '',
+            'Ssn' => $data['ssn'] ?? '',
             'lastName' => $data['last_name'] ?? '',
             'firstName' => $data['first_name'] ?? '',
+            'middleName' => $data['middle_name'] ?? '',
+            'suffix' => $data['suffix'] ?? '',
+            'addressLine1' => $data['address_line1'] ?? '',
+            'addressLine2' => $data['address_line2'] ?? '',
             'dob' => $data['dob'] ?? '',
-            // 'businessName' => $data['business_name'] ?? '',
-            // 'Ssn' => $data['ssn'] ?? '',
-            // 'middleName' => $data['middle_name'] ?? '',
-            // 'suffix' => $data['suffix'] ?? '',
-            // 'addressLine1' => $data['address_line1'] ?? '',
-            // 'addressLine2' => $data['address_line2'] ?? '',
-            // 'dobTo' => $data['dob_to'] ?? '',
-            // 'offenseCity' => $data['offense_city'] ?? '',
-            // 'offenseCounty' => $data['offense_county'] ?? '',
-            // 'offenseState' => $data['offense_state'] ?? '',
-            // 'personCity' => $data['person_city'] ?? '',
-            // 'personState' => $data['person_state'] ?? '',
-            // 'categoryTypes' => $data['category_types'] ?? '',
+            'dobTo' => $data['dob_to'] ?? '',
+            'offenseCity' => $data['offense_city'] ?? '',
+            'offenseCounty' => $data['offense_county'] ?? '',
+            'offenseState' => $data['offense_state'] ?? '',
+            'personCity' => $data['person_city'] ?? '',
+            'personState' => $data['person_state'] ?? '',
+            'categoryTypes' => $data['category_types'] ?? '',
         ];
 
-        if (empty($payload['firstName']) || empty($payload['lastName']) || empty($payload['dob'])) {
-            throw new BackgroundCheckProviderException('First name, last name, and date of birth are required for criminal search.', 'INVALID_REQUEST');
+        if (empty($payload['firstName']) || empty($payload['lastName'])) {
+            throw new BackgroundCheckProviderException('First name and last name are required for criminal search.', 'INVALID_REQUEST');
         }
 
         $baseUrl = rtrim($this->requiredConfig('base_url'), '/');
@@ -78,7 +80,7 @@ class SignzyCriminalSearchService implements CriminalBackgroundCheckProvider
 
         Log::channel('background_check')->info('Signzy: sending request', [
             'endpoint' => $endpoint,
-            'payload' => $payload,
+            'payload' => array_merge($payload, ['Ssn' => $payload['Ssn'] !== '' ? '***MASKED***' : '']),
         ]);
 
         $response = Http::acceptJson()

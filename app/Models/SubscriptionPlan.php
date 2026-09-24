@@ -61,6 +61,11 @@ class SubscriptionPlan extends Model
         return $this->hasMany(Subscription::class, 'plan_id');
     }
 
+    public function planFeatures(): HasMany
+    {
+        return $this->hasMany(PlanFeature::class, 'plan_id');
+    }
+
     // Named comparisonFeatures (not features) to avoid clashing with the
     // legacy free-text `features` JSON column still used by the admin CRUD.
     public function comparisonFeatures(): BelongsToMany

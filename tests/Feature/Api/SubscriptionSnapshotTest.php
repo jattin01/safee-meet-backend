@@ -69,6 +69,60 @@ it('stores the selected plan feature matrix as an immutable subscription snapsho
     expect($snapshot->fresh()->safee_pin_search)->toBe('3');
 });
 
+it('includes the current plans dynamic features without changing its legacy features', function () {
+    $plan = SubscriptionPlan::create([
+        'name' => 'Current Plan',
+        'slug' => 'free_trial',
+        'monthly_price' => 0,
+        'yearly_price' => 0,
+        'trial_days' => 7,
+        'features' => ['Legacy feature label'],
+        'sort_order' => 1,
+        'is_active' => true,
+    ]);
+    $feature = Feature::create([
+        'slug' => 'current_plan_feature',
+        'name' => 'Current Plan Feature',
+        'type' => 'limit',
+        'group' => 'Test',
+        'sort_order' => 1,
+        'is_active' => true,
+    ]);
+    $plan->comparisonFeatures()->attach($feature->id, [
+        'included' => true,
+        'value' => 'Unlimited',
+    ]);
+
+    $otherPlan = SubscriptionPlan::create([
+        'name' => 'Other Plan',
+        'slug' => 'other_plan',
+        'monthly_price' => 0,
+        'yearly_price' => 0,
+        'features' => [],
+        'sort_order' => 2,
+        'is_active' => true,
+    ]);
+    $otherPlan->comparisonFeatures()->attach($feature->id, [
+        'included' => false,
+        'value' => '3',
+    ]);
+
+    $user = User::factory()->create();
+    Sanctum::actingAs($user);
+
+    $this->getJson('/api/v1/subscriptions/current')
+        ->assertOk()
+        ->assertJsonPath('plan.id', $plan->id)
+        ->assertJsonPath('plan.features', ['Legacy feature label'])
+        ->assertJsonCount(1, 'plan.plan_features')
+        ->assertJsonPath('plan.plan_features.0.plan_id', $plan->id)
+        ->assertJsonPath('plan.plan_features.0.feature_id', $feature->id)
+        ->assertJsonPath('plan.plan_features.0.included', true)
+        ->assertJsonPath('plan.plan_features.0.value', 'Unlimited')
+        ->assertJsonPath('plan.plan_features.0.feature.slug', 'current_plan_feature')
+        ->assertJsonPath('plan.plan_features.0.feature.is_active', true);
+});
+
 it('discontinues the old snapshot and gives an upgrade a fresh usage allowance', function () {
     $user = User::factory()->create();
     $basic = snapshotPlan('basic_history', '3', '3');
