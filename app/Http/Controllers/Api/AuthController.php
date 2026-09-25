@@ -1523,32 +1523,32 @@ class AuthController extends Controller
 
             $userId = $user->id;
             $phone = $user->phone;
+            $email = $user->email;
             $firebaseUid = $user->firebase_uid;
 
             // Delete the Firebase identity while the original UID is still
             // available. FirebaseUserService safely ignores missing users.
             $this->firebaseUserService->deleteUser($firebaseUid);
 
-            // Free up the phone number for reuse: the `phone` column has a
-            // DB-level unique constraint that a soft-delete alone does not
-            // bypass, so a deleted account would otherwise permanently block
-            // re-registration with the same number. Stash the original value
-            // in case it's ever needed for audit/support purposes.
+            // Free unique identifiers for reuse. A soft delete does not bypass
+            // the database-level unique constraints on these columns.
+            $deletedAt = now()->timestamp;
+            $deletedIdentifiers = [
+                'firebase_uid' => 'deleted::' . $userId . '::' . $deletedAt,
+                'email_verified_at' => null,
+            ];
 
-
-            // if ($phone) {
-            //     $user->forceFill([
-            //         'firebase_uid' => null,
-            //         'phone' => $phone . '::deleted::' . $userId . '::' . now()->timestamp,
-            //     ])->save();
-            // }
             if ($phone) {
-                $user->forceFill([
-                    'firebase_uid' => 'deleted::' . $user->id . '::' . time(),
-                    'phone' => $phone . '::deleted::' . $userId . '::' . now()->timestamp,
-                ])->save();
+                $deletedIdentifiers['phone'] = $phone . '::deleted::' . $userId . '::' . $deletedAt;
             }
 
+            if ($email) {
+                // Keep this short, unique, and email-shaped so the original
+                // address becomes available for a future registration.
+                $deletedIdentifiers['email'] = 'deleted.' . $userId . '.' . $deletedAt . '@deleted.invalid';
+            }
+
+            $user->forceFill($deletedIdentifiers)->save();
 
             $user->delete();
 
