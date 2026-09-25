@@ -49,6 +49,7 @@ class TelesignSmsService
                     'phone' => $phone,
                     'status' => $response->status(),
                     'body' => $response->body(),
+                    'message' => $message,
                 ]);
 
             if ($response->successful()) {
