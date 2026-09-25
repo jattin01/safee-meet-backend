@@ -53,12 +53,8 @@ class DiditVerifiedIdentityExtractor
             }
         }
 
-        $required = collect($values)->except('postal_code')->all();
+        $required = collect($values)->only(['first_name', 'last_name', 'date_of_birth'])->all();
         $missing = array_keys(array_filter($required, fn (string $value): bool => $value === ''));
-
-        if (($address['is_verified'] ?? false) !== true) {
-            $missing[] = 'verified_address';
-        }
 
         if ($missing !== []) {
             return new IdentityExtractionResult(
