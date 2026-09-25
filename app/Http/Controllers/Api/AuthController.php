@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\Auth\FirebaseUserService;
 use App\Services\PushNotificationService;
 use App\Services\Sms\TelesignSmsService;
 use Illuminate\Http\Request;
@@ -25,6 +26,10 @@ class AuthController extends Controller
     private const OTP_TTL_MINUTES = 10;
 
     private const OTP_MAX_ATTEMPTS = 5;
+
+    public function __construct(
+        private readonly FirebaseUserService $firebaseUserService,
+    ) {}
 
     /**
      * Start registration by sending an OTP to a new mobile number.
@@ -1518,6 +1523,11 @@ class AuthController extends Controller
 
             $userId = $user->id;
             $phone = $user->phone;
+            $firebaseUid = $user->firebase_uid;
+
+            // Delete the Firebase identity while the original UID is still
+            // available. FirebaseUserService safely ignores missing users.
+            $this->firebaseUserService->deleteUser($firebaseUid);
 
             // Free up the phone number for reuse: the `phone` column has a
             // DB-level unique constraint that a soft-delete alone does not
@@ -1544,7 +1554,7 @@ class AuthController extends Controller
 
             Log::info('Main user record deleted', [
                 'user_id' => $userId,
-                'firebase_uid' => $user->firebase_uid,
+                'firebase_uid' => $firebaseUid,
                 'phone' => $phone,
             ]);
         });
