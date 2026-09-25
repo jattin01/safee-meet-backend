@@ -1524,8 +1524,11 @@ class AuthController extends Controller
             // bypass, so a deleted account would otherwise permanently block
             // re-registration with the same number. Stash the original value
             // in case it's ever needed for audit/support purposes.
+
+
             if ($phone) {
                 $user->forceFill([
+                    'firebase_uid' => null,
                     'phone' => $phone . '::deleted::' . $userId . '::' . now()->timestamp,
                 ])->save();
             }
@@ -1534,6 +1537,7 @@ class AuthController extends Controller
 
             Log::info('Main user record deleted', [
                 'user_id' => $userId,
+                'firebase_uid' => $user->firebase_uid,
                 'phone' => $phone,
             ]);
         });
