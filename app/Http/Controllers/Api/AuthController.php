@@ -1526,12 +1526,19 @@ class AuthController extends Controller
             // in case it's ever needed for audit/support purposes.
 
 
+            // if ($phone) {
+            //     $user->forceFill([
+            //         'firebase_uid' => null,
+            //         'phone' => $phone . '::deleted::' . $userId . '::' . now()->timestamp,
+            //     ])->save();
+            // }
             if ($phone) {
                 $user->forceFill([
-                    'firebase_uid' => null,
+                    'firebase_uid' => 'deleted::' . $user->id . '::' . time(),
                     'phone' => $phone . '::deleted::' . $userId . '::' . now()->timestamp,
                 ])->save();
             }
+
 
             $user->delete();
 
