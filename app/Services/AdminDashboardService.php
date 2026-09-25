@@ -102,9 +102,10 @@ class AdminDashboardService
 
     /**
      * Total subscribers per active plan, for the "Total Subscribers by Plan"
-     * card: name, subscriber count, share of all subscriptions, and a color.
+     * card: name, subscriber count, share of all subscriptions, revenue
+     * earned from succeeded payments on that plan, and a color.
      *
-     * @return array<int, array{name: string, count: int, value: int, color: string}>
+     * @return array<int, array{name: string, count: int, value: int, revenue: float, color: string}>
      */
     private function planSubscriberCounts(): array
     {
@@ -117,17 +118,26 @@ class AdminDashboardService
 
         $totalSubscriptions = $countsByPlan->sum();
 
+        $revenueByPlan = Payment::query()
+            ->join('subscriptions', 'subscriptions.id', '=', 'payments.subscription_id')
+            ->join('user_subscriptions', 'user_subscriptions.subscription_id', '=', 'subscriptions.subscription_id')
+            ->where('payments.status', 'succeeded')
+            ->selectRaw('user_subscriptions.plan_id, SUM(payments.amount) as total')
+            ->groupBy('user_subscriptions.plan_id')
+            ->pluck('total', 'plan_id');
+
         return SubscriptionPlan::query()
             ->active()
             ->orderBy('sort_order')
             ->get()
-            ->map(function (SubscriptionPlan $plan, int $index) use ($countsByPlan, $totalSubscriptions, $palette) {
+            ->map(function (SubscriptionPlan $plan, int $index) use ($countsByPlan, $totalSubscriptions, $revenueByPlan, $palette) {
                 $count = (int) ($countsByPlan[$plan->id] ?? 0);
 
                 return [
                     'name' => $plan->name,
                     'count' => $count,
                     'value' => $totalSubscriptions > 0 ? (int) round(($count / $totalSubscriptions) * 100) : 0,
+                    'revenue' => round((float) ($revenueByPlan[$plan->id] ?? 0) / 100, 2),
                     'color' => $palette[$index % count($palette)],
                 ];
             })

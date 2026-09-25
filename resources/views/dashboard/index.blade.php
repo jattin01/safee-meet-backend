@@ -238,6 +238,7 @@
             <tr class="border-b border-[#2a2d3e] text-left text-xs uppercase tracking-wide text-red-500">
               <th class="px-5 py-4 font-semibold">User</th>
               <th class="px-5 py-4 font-semibold">Joined</th>
+              <th class="px-5 py-4 font-semibold">Plan</th>
               <th class="px-5 py-4 font-semibold">Verification</th>
               <th class="px-5 py-4 font-semibold">Trust Score</th>
               <th class="px-5 py-4 font-semibold">Status</th>
@@ -259,6 +260,7 @@
                   </div>
                 </td>
                 <td class="px-5 py-4 text-gray-400">{{ $user->created_at?->format('d M Y') ?? '—' }}</td>
+                <td class="px-5 py-4 text-gray-300">{{ $user->plan?->name ?? '—' }}</td>
                 <td class="px-5 py-4">
                   <span class="rounded-full px-3 py-1 text-xs font-medium" style="background: {{ $user->verification_color }}26; color: {{ $user->verification_color }};">{{ $user->verification_label }}</span>
                 </td>
@@ -274,7 +276,7 @@
               </tr>
             @empty
               <tr>
-                <td colspan="6" class="px-5 py-10 text-center text-gray-500">No users found.</td>
+                <td colspan="7" class="px-5 py-10 text-center text-gray-500">No users found.</td>
               </tr>
             @endforelse
           </tbody>
@@ -346,6 +348,19 @@
       </div>
     </section>
   </div>
+
+  <section class="rounded-xl border border-[#2a2d3e] bg-black p-5">
+    <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div>
+        <h3 class="text-base font-semibold text-white">Revenue by Plan</h3>
+        <p class="mt-1 text-sm text-gray-400">Revenue earned from succeeded payments on each plan.</p>
+      </div>
+    </div>
+
+    <div class="chart-frame mt-5">
+      <canvas id="subscriberBarChart"></canvas>
+    </div>
+  </section>
 
   <section class="rounded-xl border border-[#2a2d3e] bg-black overflow-hidden">
     <div class="flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between">
@@ -664,6 +679,60 @@
         engagementChart.update();
       });
     }
+  }
+
+  const subscriberBarCanvas = document.getElementById('subscriberBarChart');
+  if (subscriberBarCanvas) {
+    const planRevenueCounts = @json($planSubscriberCounts);
+
+    new Chart(subscriberBarCanvas, {
+      type: 'bar',
+      data: {
+        labels: planRevenueCounts.map((plan) => plan.name),
+        datasets: [
+          {
+            label: 'Revenue',
+            data: planRevenueCounts.map((plan) => plan.revenue),
+            backgroundColor: planRevenueCounts.map((plan) => plan.color),
+            borderRadius: 6,
+            maxBarThickness: 56
+          }
+        ]
+      },
+      options: {
+        maintainAspectRatio: false,
+        responsive: true,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#111722',
+            borderColor: '#252b3b',
+            borderWidth: 1,
+            titleColor: '#f5f7fb',
+            bodyColor: '#cbd2e1',
+            callbacks: {
+              label: function (context) {
+                return 'Revenue: $' + context.parsed.y.toFixed(2);
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { color: 'transparent' },
+            ticks: { color: chartLabelColor }
+          },
+          y: {
+            beginAtZero: true,
+            ticks: {
+              color: chartLabelColor,
+              callback: function (value) { return '$' + value; }
+            },
+            grid: { color: chartGridColor }
+          }
+        }
+      }
+    });
   }
 
   const locationCanvas = document.getElementById('locationChart');

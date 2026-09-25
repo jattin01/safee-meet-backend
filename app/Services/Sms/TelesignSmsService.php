@@ -45,6 +45,11 @@ class TelesignSmsService
                 ])
                 ->asForm()
                 ->post('https://rest-api.telesign.com' . $resourcePath, $params);
+                Log::info('Telesign response', [
+                    'phone' => $phone,
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
 
             if ($response->successful()) {
                 Log::info('OTP SMS sent successfully via Telesign', [
