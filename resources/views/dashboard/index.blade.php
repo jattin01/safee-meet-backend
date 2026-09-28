@@ -150,7 +150,7 @@
     @endforeach
   </div>
 
-  <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
+  <!-- <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
     <section id="engagementSection" class="rounded-xl border border-[#2a2d3e] bg-black p-5 xl:col-span-12">
       <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
@@ -188,37 +188,44 @@
         <canvas id="engagementChart"></canvas>
       </div>
     </section>
-
-    <!-- <section class="rounded-xl border border-[#2a2d3e] bg-black p-5 xl:col-span-4">
-      <div class="flex items-center justify-between gap-4">
-        <div>
-          <h3 class="text-base font-semibold text-white">Safety by Location</h3>
-          <p class="mt-1 text-sm text-gray-400">Verified activity coverage.</p>
-        </div>
-        <button class="rounded-lg border border-[#343746] px-3 py-2 text-xs font-semibold text-gray-300 hover:text-white">
-          Export
-        </button>
+  </div> -->
+  <section id="planRevenueSection" class="rounded-xl border border-[#2a2d3e] bg-black p-5">
+    <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div>
+        <h3 class="text-base font-semibold text-white">Revenue by Plan</h3>
+        <p class="mt-1 text-sm text-gray-400">Number of subscriptions on each plan over time.</p>
       </div>
 
-      <div class="mini-chart-frame mt-4">
-        <canvas id="locationChart"></canvas>
+      <div id="planRevenueRangeToggle" class="inline-flex w-fit rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] p-1 text-xs font-semibold text-gray-400">
+        <button type="button" data-range="day" class="rounded bg-[#DC131C] px-3 py-1.5 text-white">Day</button>
+        <button type="button" data-range="month" class="rounded px-3 py-1.5 hover:text-white">Month</button>
+        <button type="button" data-range="year" class="rounded px-3 py-1.5 hover:text-white">Year</button>
+      </div>
+    </div>
+
+    <div class="chart-frame mt-5">
+      <canvas id="subscriberBarChart"></canvas>
+    </div>
+  </section>
+
+  <section id="planRevenueAmountSection" class="rounded-xl border border-[#2a2d3e] bg-black p-5">
+    <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div>
+        <h3 class="text-base font-semibold text-white">Plan Revenue</h3>
+        <p class="mt-1 text-sm text-gray-400">Revenue earned from succeeded payments on each plan over time.</p>
       </div>
 
-      <div class="mt-5 space-y-4">
-        @foreach ($locations as $location)
-          <div>
-            <div class="mb-2 flex items-center justify-between text-sm">
-              <span class="text-gray-300">{{ $location['name'] }}</span>
-              <span class="text-gray-400">{{ $location['value'] }}%</span>
-            </div>
-            <div class="progress-track">
-              <span class="progress-fill" style="width: {{ $location['value'] }}%; background: {{ $location['color'] }};"></span>
-            </div>
-          </div>
-        @endforeach
+      <div id="planRevenueAmountRangeToggle" class="inline-flex w-fit rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] p-1 text-xs font-semibold text-gray-400">
+        <button type="button" data-range="day" class="rounded bg-[#DC131C] px-3 py-1.5 text-white">Day</button>
+        <button type="button" data-range="month" class="rounded px-3 py-1.5 hover:text-white">Month</button>
+        <button type="button" data-range="year" class="rounded px-3 py-1.5 hover:text-white">Year</button>
       </div>
-    </section> -->
-  </div>
+    </div>
+
+    <div class="chart-frame mt-5">
+      <canvas id="planRevenueAmountChart"></canvas>
+    </div>
+  </section>
 
 
 
@@ -349,7 +356,7 @@
     </section>
   </div>
 
-  <section class="rounded-xl border border-[#2a2d3e] bg-black p-5">
+  <!-- <section class="rounded-xl border border-[#2a2d3e] bg-black p-5">
     <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div>
         <h3 class="text-base font-semibold text-white">Revenue by Plan</h3>
@@ -360,7 +367,47 @@
     <div class="chart-frame mt-5">
       <canvas id="subscriberBarChart"></canvas>
     </div>
-  </section>
+  </section> -->
+
+  <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
+    <section id="engagementSection" class="rounded-xl border border-[#2a2d3e] bg-black p-5 xl:col-span-12">
+      <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h3 class="text-base font-semibold text-white">Engagement Overview</h3>
+          <p class="mt-1 text-sm text-gray-400">Users, meetings, revenue, and safety activity.</p>
+        </div>
+
+        <div id="engagementRangeToggle" class="inline-flex w-fit rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] p-1 text-xs font-semibold text-gray-400">
+          <button type="button" data-range="day" class="rounded px-3 py-1.5 hover:text-white">Day</button>
+          <button type="button" data-range="month" class="rounded bg-[#DC131C] px-3 py-1.5 text-white">Month</button>
+          <button type="button" data-range="year" class="rounded px-3 py-1.5 hover:text-white">Year</button>
+        </div>
+      </div>
+
+      <div class="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div class="rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] p-3">
+          <p class="text-xs text-gray-400">Users</p>
+          <p class="mt-1 text-lg font-semibold text-white">{{ number_format($totalUsers) }}</p>
+        </div>
+        <div class="rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] p-3">
+          <p class="text-xs text-gray-400">Meetings</p>
+          <p class="mt-1 text-lg font-semibold text-white">{{ number_format($meetingCount) }}</p>
+        </div>
+        <div class="rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] p-3">
+          <p class="text-xs text-gray-400">Revenue</p>
+          <p class="mt-1 text-lg font-semibold text-white">${{ number_format(array_sum($engagementTrend['month']['revenue']), 2) }}</p>
+        </div>
+        <div class="rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] p-3">
+          <p class="text-xs text-gray-400">Risk Alerts</p>
+          <p class="mt-1 text-lg font-semibold text-white">{{ number_format($incidentCount) }}</p>
+        </div>
+      </div>
+
+      <div id="engagementChartFrame" class="chart-frame mt-5">
+        <canvas id="engagementChart"></canvas>
+      </div>
+    </section>
+  </div>
 
   <section class="rounded-xl border border-[#2a2d3e] bg-black overflow-hidden">
     <div class="flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between">
@@ -681,29 +728,75 @@
     }
   }
 
-  const subscriberBarCanvas = document.getElementById('subscriberBarChart');
-  if (subscriberBarCanvas) {
-    const planRevenueCounts = @json($planSubscriberCounts);
+  // Each call builds a fully independent plan chart (own data, toggle and state).
+  const initPlanTrendChart = function (canvasId, toggleId, metric) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) {
+      return;
+    }
 
-    new Chart(subscriberBarCanvas, {
-      type: 'bar',
+    const trends = @json($planRevenueTrend);
+    const toggle = document.getElementById(toggleId);
+    const isRevenue = metric === 'revenue';
+    let activeRange = 'day';
+
+    const formatValue = function (value) {
+      return isRevenue ? '$' + Number(value).toFixed(2) : value + ' subscribed';
+    };
+
+    // Subscriptions render as stacked bars; revenue as one line per plan.
+    const buildDatasets = function (trend) {
+      return trend.plans.map(function (plan) {
+        if (isRevenue) {
+          return {
+            label: plan.name,
+            data: plan.revenue,
+            borderColor: plan.color,
+            backgroundColor: plan.color,
+            borderWidth: 2.5,
+            tension: 0.38,
+            pointRadius: 2.5,
+            pointHoverRadius: 5
+          };
+        }
+
+        return {
+          label: plan.name,
+          data: plan.subscriptions,
+          backgroundColor: plan.color,
+          borderRadius: 4,
+          maxBarThickness: 32,
+          stack: 'plans'
+        };
+      });
+    };
+
+    const initialTrend = trends[activeRange];
+
+    const chart = new Chart(canvas, {
+      type: isRevenue ? 'line' : 'bar',
       data: {
-        labels: planRevenueCounts.map((plan) => plan.name),
-        datasets: [
-          {
-            label: 'Revenue',
-            data: planRevenueCounts.map((plan) => plan.revenue),
-            backgroundColor: planRevenueCounts.map((plan) => plan.color),
-            borderRadius: 6,
-            maxBarThickness: 56
-          }
-        ]
+        labels: initialTrend.labels,
+        datasets: buildDatasets(initialTrend)
       },
       options: {
         maintainAspectRatio: false,
         responsive: true,
+        interaction: {
+          intersect: false,
+          mode: 'index'
+        },
         plugins: {
-          legend: { display: false },
+          legend: {
+            position: 'top',
+            align: 'end',
+            labels: {
+              color: chartLabelColor,
+              boxWidth: 10,
+              boxHeight: 10,
+              usePointStyle: true
+            }
+          },
           tooltip: {
             backgroundColor: '#111722',
             borderColor: '#252b3b',
@@ -712,28 +805,66 @@
             bodyColor: '#cbd2e1',
             callbacks: {
               label: function (context) {
-                return 'Revenue: $' + context.parsed.y.toFixed(2);
+                return context.dataset.label + ': ' + formatValue(context.parsed.y);
+              },
+              footer: function (items) {
+                if (!isRevenue) {
+                  return '';
+                }
+                const total = items.reduce(function (sum, item) { return sum + item.parsed.y; }, 0);
+                return 'Total: $' + total.toFixed(2);
               }
             }
           }
         },
         scales: {
           x: {
+            stacked: !isRevenue,
             grid: { color: 'transparent' },
             ticks: { color: chartLabelColor }
           },
           y: {
+            stacked: !isRevenue,
             beginAtZero: true,
-            ticks: {
-              color: chartLabelColor,
-              callback: function (value) { return '$' + value; }
-            },
+            ticks: isRevenue
+              ? { color: chartLabelColor, callback: function (value) { return '$' + value; } }
+              : { color: chartLabelColor, precision: 0 },
             grid: { color: chartGridColor }
           }
         }
       }
     });
-  }
+
+    if (toggle) {
+      toggle.addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-range]');
+        if (!button || button.dataset.range === activeRange) {
+          return;
+        }
+
+        const trend = trends[button.dataset.range];
+        if (!trend) {
+          return;
+        }
+
+        activeRange = button.dataset.range;
+
+        toggle.querySelectorAll('button[data-range]').forEach(function (btn) {
+          btn.classList.remove('bg-[#DC131C]', 'text-white');
+          btn.classList.add('hover:text-white');
+        });
+        button.classList.add('bg-[#DC131C]', 'text-white');
+        button.classList.remove('hover:text-white');
+
+        chart.data.labels = trend.labels;
+        chart.data.datasets = buildDatasets(trend);
+        chart.update();
+      });
+    }
+  };
+
+  initPlanTrendChart('subscriberBarChart', 'planRevenueRangeToggle', 'subscriptions');
+  initPlanTrendChart('planRevenueAmountChart', 'planRevenueAmountRangeToggle', 'revenue');
 
   const locationCanvas = document.getElementById('locationChart');
   if (locationCanvas) {

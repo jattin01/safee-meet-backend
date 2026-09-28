@@ -46,6 +46,7 @@ class AdminDashboardService
             'recentTransactions' => $this->recentTransactions(),
             'engagementTrend' => $this->engagementTrend(),
             'planSubscriberCounts' => $this->planSubscriberCounts(),
+            'planRevenueTrend' => $this->planRevenueTrend(),
             'topHosts' => User::query()
                 ->withCount('meetings')
                 ->whereHas('meetings')
@@ -143,6 +144,78 @@ class AdminDashboardService
             })
             ->values()
             ->all();
+    }
+
+    /**
+     * Plans subscribed over time for the "Revenue by Plan" chart, broken
+     * down by day (last 30 days), month (last 12 months), and year (last 5
+     * years): per active plan, new subscriptions and revenue from succeeded
+     * payments in each bucket.
+     *
+     * @return array<string, array{labels: array<int, string>, plans: array<int, array{name: string, color: string, subscriptions: array<int, int>, revenue: array<int, float>}>}>
+     */
+    private function planRevenueTrend(): array
+    {
+        $now = CarbonImmutable::now();
+        $palette = ['#0ab39c', '#299cdb', '#f7b84b', '#f06548', '#7367f0', '#20c997'];
+
+        $plans = SubscriptionPlan::query()
+            ->active()
+            ->orderBy('sort_order')
+            ->get(['id', 'name']);
+
+        $ranges = [
+            'day' => [$now->subDays(29)->startOfDay(), $now->endOfDay(), '%Y-%m-%d', 'Y-m-d', 'd M', 'addDay'],
+            'month' => [$now->startOfMonth()->subMonths(11), $now->endOfMonth(), '%Y-%m', 'Y-m', 'M Y', 'addMonthNoOverflow'],
+            'year' => [$now->startOfYear()->subYears(4), $now->endOfYear(), '%Y', 'Y', 'Y', 'addYearNoOverflow'],
+        ];
+
+        $trend = [];
+        foreach ($ranges as $range => [$start, $end, $sqlFormat, $bucketFormat, $labelFormat, $step]) {
+            $subscriptions = UserSubscription::query()
+                ->whereBetween('created_at', [$start, $end])
+                ->selectRaw('plan_id, DATE_FORMAT(created_at, ?) as bucket, COUNT(*) as total', [$sqlFormat])
+                ->groupBy('plan_id', 'bucket')
+                ->get()
+                ->groupBy('plan_id')
+                ->map(fn ($rows) => $rows->pluck('total', 'bucket'));
+
+            $revenue = Payment::query()
+                ->join('subscriptions', 'subscriptions.id', '=', 'payments.subscription_id')
+                ->join('user_subscriptions', 'user_subscriptions.subscription_id', '=', 'subscriptions.subscription_id')
+                ->where('payments.status', 'succeeded')
+                ->whereBetween('payments.paid_at', [$start, $end])
+                ->selectRaw('user_subscriptions.plan_id, DATE_FORMAT(payments.paid_at, ?) as bucket, SUM(payments.amount) as total', [$sqlFormat])
+                ->groupBy('user_subscriptions.plan_id', 'bucket')
+                ->get()
+                ->groupBy('plan_id')
+                ->map(fn ($rows) => $rows->pluck('total', 'bucket'));
+
+            $buckets = [];
+            $labels = [];
+            for ($cursor = $start; $cursor->lte($end); $cursor = $cursor->{$step}()) {
+                $buckets[] = $cursor->format($bucketFormat);
+                $labels[] = $cursor->format($labelFormat);
+            }
+
+            $trend[$range] = [
+                'labels' => $labels,
+                'plans' => $plans->values()->map(fn (SubscriptionPlan $plan, int $index) => [
+                    'name' => $plan->name,
+                    'color' => $palette[$index % count($palette)],
+                    'subscriptions' => array_map(
+                        fn (string $bucket) => (int) ($subscriptions[$plan->id][$bucket] ?? 0),
+                        $buckets
+                    ),
+                    'revenue' => array_map(
+                        fn (string $bucket) => round((float) ($revenue[$plan->id][$bucket] ?? 0) / 100, 2),
+                        $buckets
+                    ),
+                ])->all(),
+            ];
+        }
+
+        return $trend;
     }
 
     /**

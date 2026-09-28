@@ -102,6 +102,7 @@ Route::middleware('auth:admin')->group(function () {
     Route::delete('/verification-levels/{verificationLevel}', [VerificationLevelController::class, 'destroy'])->name('verification-levels.destroy');
     Route::post('/verification-levels/{verificationLevel}/restore', [VerificationLevelController::class, 'restore'])->name('verification-levels.restore');
     Route::get('/incidents', [IncidentsController::class, 'index'])->name('incidents');
+    Route::get('/incidents/export', [IncidentsController::class, 'export'])->name('incidents.export');
     Route::get('/meetings', [MeetingController::class, 'index'])->name('meetings');
     Route::get('/meetings/statuses', [MeetingController::class, 'statuses'])->name('meetings.statuses');
     Route::get('/meetings/usernames', [MeetingController::class, 'usernames'])->name('meetings.usernamefilter');
