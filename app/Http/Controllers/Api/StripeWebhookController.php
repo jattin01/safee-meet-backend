@@ -137,8 +137,11 @@ class StripeWebhookController extends Controller
                 'status' => 'active',
             ]);
             $subscription->user()->update(['subscription_status' => 'active']);
+            // Stripe's received amount is the source of truth for revenue.
             $payment->update([
                 'status' => 'succeeded',
+                'amount' => $paymentIntent->amount_received ?? $payment->amount,
+                'currency' => $paymentIntent->currency ?? $payment->currency,
                 'paid_at' => now(),
             ]);
 
@@ -210,17 +213,20 @@ class StripeWebhookController extends Controller
         ]);
         $subscription->user()->update(['subscription_status' => 'active']);
 
+        // Newer Stripe API versions no longer put payment_intent on the
+        // invoice; only set it when present so the id stored at checkout
+        // isn't wiped out.
         $payment = Payment::updateOrCreate(
             ['stripe_invoice_id' => $invoice->id],
-            [
+            array_filter([
                 'user_id' => $subscription->user_id,
                 'subscription_id' => $subscription->id,
-                'stripe_payment_intent_id' => $invoice->payment_intent,
+                'stripe_payment_intent_id' => $invoice->payment_intent ?? null,
                 'amount' => $invoice->amount_paid,
                 'currency' => $invoice->currency,
                 'status' => 'succeeded',
                 'paid_at' => now(),
-            ],
+            ], fn ($value) => $value !== null),
         );
 
         $this->sendInvoiceMail($subscription, $payment);
@@ -266,14 +272,14 @@ class StripeWebhookController extends Controller
 
         Payment::updateOrCreate(
             ['stripe_invoice_id' => $invoice->id],
-            [
+            array_filter([
                 'user_id' => $subscription->user_id,
                 'subscription_id' => $subscription->id,
-                'stripe_payment_intent_id' => $invoice->payment_intent,
+                'stripe_payment_intent_id' => $invoice->payment_intent ?? null,
                 'amount' => $invoice->amount_due,
                 'currency' => $invoice->currency,
                 'status' => 'failed',
-            ],
+            ], fn ($value) => $value !== null),
         );
     }
 

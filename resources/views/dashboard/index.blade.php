@@ -189,14 +189,14 @@
       </div>
     </section>
   </div> -->
-  <section id="planRevenueSection" class="rounded-xl border border-[#2a2d3e] bg-black p-5">
+  <section id="registeredUsersSection" class="rounded-xl border border-[#2a2d3e] bg-black p-5">
     <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div>
-        <h3 class="text-base font-semibold text-white">Revenue by Plan</h3>
-        <p class="mt-1 text-sm text-gray-400">Number of subscriptions on each plan over time.</p>
+        <h3 class="text-base font-semibold text-white">Registered Users</h3>
+        <p class="mt-1 text-sm text-gray-400">New users registered over time.</p>
       </div>
 
-      <div id="planRevenueRangeToggle" class="inline-flex w-fit rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] p-1 text-xs font-semibold text-gray-400">
+      <div id="registeredUsersRangeToggle" class="inline-flex w-fit rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] p-1 text-xs font-semibold text-gray-400">
         <button type="button" data-range="day" class="rounded bg-[#DC131C] px-3 py-1.5 text-white">Day</button>
         <button type="button" data-range="month" class="rounded px-3 py-1.5 hover:text-white">Month</button>
         <button type="button" data-range="year" class="rounded px-3 py-1.5 hover:text-white">Year</button>
@@ -204,7 +204,7 @@
     </div>
 
     <div class="chart-frame mt-5">
-      <canvas id="subscriberBarChart"></canvas>
+      <canvas id="registeredUsersChart"></canvas>
     </div>
   </section>
 
@@ -212,13 +212,20 @@
     <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div>
         <h3 class="text-base font-semibold text-white">Plan Revenue</h3>
-        <p class="mt-1 text-sm text-gray-400">Revenue earned from succeeded payments on each plan over time.</p>
+        <p id="planRevenueAmountSubtitle" class="mt-1 text-sm text-gray-400">Revenue earned from succeeded payments on each plan over time.</p>
       </div>
 
-      <div id="planRevenueAmountRangeToggle" class="inline-flex w-fit rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] p-1 text-xs font-semibold text-gray-400">
-        <button type="button" data-range="day" class="rounded bg-[#DC131C] px-3 py-1.5 text-white">Day</button>
-        <button type="button" data-range="month" class="rounded px-3 py-1.5 hover:text-white">Month</button>
-        <button type="button" data-range="year" class="rounded px-3 py-1.5 hover:text-white">Year</button>
+      <div class="flex flex-wrap items-center gap-2">
+        <div id="planRevenueAmountMetricToggle" class="inline-flex w-fit rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] p-1 text-xs font-semibold text-gray-400">
+          <button type="button" data-metric="revenue" class="rounded bg-[#DC131C] px-3 py-1.5 text-white">Revenue</button>
+          <button type="button" data-metric="subscriptions" class="rounded px-3 py-1.5 hover:text-white">Subscriptions</button>
+        </div>
+
+        <div id="planRevenueAmountRangeToggle" class="inline-flex w-fit rounded-lg border border-[#2a2d3e] bg-[#1a1a1a] p-1 text-xs font-semibold text-gray-400">
+          <button type="button" data-range="day" class="rounded bg-[#DC131C] px-3 py-1.5 text-white">Day</button>
+          <button type="button" data-range="month" class="rounded px-3 py-1.5 hover:text-white">Month</button>
+          <button type="button" data-range="year" class="rounded px-3 py-1.5 hover:text-white">Year</button>
+        </div>
       </div>
     </div>
 
@@ -728,24 +735,114 @@
     }
   }
 
-  // Each call builds a fully independent plan chart (own data, toggle and state).
-  const initPlanTrendChart = function (canvasId, toggleId, metric) {
-    const canvas = document.getElementById(canvasId);
+  // Highlights the clicked button inside a Day/Month/Year style toggle group.
+  const setActiveToggleButton = function (group, button) {
+    group.querySelectorAll('button').forEach(function (btn) {
+      btn.classList.remove('bg-[#DC131C]', 'text-white');
+      btn.classList.add('hover:text-white');
+    });
+    button.classList.add('bg-[#DC131C]', 'text-white');
+    button.classList.remove('hover:text-white');
+  };
+
+  (function () {
+    const canvas = document.getElementById('registeredUsersChart');
+    if (!canvas) {
+      return;
+    }
+
+    const trends = @json($registeredUsersTrend);
+    const toggle = document.getElementById('registeredUsersRangeToggle');
+    let activeRange = 'day';
+
+    const chart = new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels: trends[activeRange].labels,
+        datasets: [
+          {
+            label: 'Registered Users',
+            data: trends[activeRange].users,
+            backgroundColor: '#0ab39c',
+            hoverBackgroundColor: '#12d6ba',
+            borderRadius: 4,
+            maxBarThickness: 32
+          }
+        ]
+      },
+      options: {
+        maintainAspectRatio: false,
+        responsive: true,
+        interaction: {
+          intersect: false,
+          mode: 'index'
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#111722',
+            borderColor: '#252b3b',
+            borderWidth: 1,
+            titleColor: '#f5f7fb',
+            bodyColor: '#cbd2e1',
+            callbacks: {
+              label: function (context) {
+                return 'Registered Users: ' + context.parsed.y;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { color: 'transparent' },
+            ticks: { color: chartLabelColor }
+          },
+          y: {
+            beginAtZero: true,
+            ticks: { color: chartLabelColor, precision: 0 },
+            grid: { color: chartGridColor }
+          }
+        }
+      }
+    });
+
+    if (toggle) {
+      toggle.addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-range]');
+        if (!button || button.dataset.range === activeRange || !trends[button.dataset.range]) {
+          return;
+        }
+
+        activeRange = button.dataset.range;
+        setActiveToggleButton(toggle, button);
+
+        chart.data.labels = trends[activeRange].labels;
+        chart.data.datasets[0].data = trends[activeRange].users;
+        chart.update();
+      });
+    }
+  })();
+
+  (function () {
+    const canvas = document.getElementById('planRevenueAmountChart');
     if (!canvas) {
       return;
     }
 
     const trends = @json($planRevenueTrend);
-    const toggle = document.getElementById(toggleId);
-    const isRevenue = metric === 'revenue';
-    let activeRange = 'day';
-
-    const formatValue = function (value) {
-      return isRevenue ? '$' + Number(value).toFixed(2) : value + ' subscribed';
+    const rangeToggle = document.getElementById('planRevenueAmountRangeToggle');
+    const metricToggle = document.getElementById('planRevenueAmountMetricToggle');
+    const subtitle = document.getElementById('planRevenueAmountSubtitle');
+    const subtitles = {
+      revenue: 'Revenue earned from succeeded payments on each plan over time.',
+      subscriptions: 'Number of subscriptions on each plan over time.'
     };
+    let activeRange = 'day';
+    let activeMetric = 'revenue';
+    let chart = null;
 
-    // Subscriptions render as stacked bars; revenue as one line per plan.
-    const buildDatasets = function (trend) {
+    // Revenue renders as one line per plan; subscriptions as stacked bars.
+    const buildDatasets = function (trend, isRevenue) {
       return trend.plans.map(function (plan) {
         if (isRevenue) {
           return {
@@ -771,100 +868,109 @@
       });
     };
 
-    const initialTrend = trends[activeRange];
+    // The chart type differs per metric, so the chart is rebuilt on each change.
+    const render = function () {
+      const trend = trends[activeRange];
+      const isRevenue = activeMetric === 'revenue';
 
-    const chart = new Chart(canvas, {
-      type: isRevenue ? 'line' : 'bar',
-      data: {
-        labels: initialTrend.labels,
-        datasets: buildDatasets(initialTrend)
-      },
-      options: {
-        maintainAspectRatio: false,
-        responsive: true,
-        interaction: {
-          intersect: false,
-          mode: 'index'
+      if (chart) {
+        chart.destroy();
+      }
+
+      if (subtitle) {
+        subtitle.textContent = subtitles[activeMetric];
+      }
+
+      chart = new Chart(canvas, {
+        type: isRevenue ? 'line' : 'bar',
+        data: {
+          labels: trend.labels,
+          datasets: buildDatasets(trend, isRevenue)
         },
-        plugins: {
-          legend: {
-            position: 'top',
-            align: 'end',
-            labels: {
-              color: chartLabelColor,
-              boxWidth: 10,
-              boxHeight: 10,
-              usePointStyle: true
-            }
+        options: {
+          maintainAspectRatio: false,
+          responsive: true,
+          interaction: {
+            intersect: false,
+            mode: 'index'
           },
-          tooltip: {
-            backgroundColor: '#111722',
-            borderColor: '#252b3b',
-            borderWidth: 1,
-            titleColor: '#f5f7fb',
-            bodyColor: '#cbd2e1',
-            callbacks: {
-              label: function (context) {
-                return context.dataset.label + ': ' + formatValue(context.parsed.y);
-              },
-              footer: function (items) {
-                if (!isRevenue) {
-                  return '';
+          plugins: {
+            legend: {
+              position: 'top',
+              align: 'end',
+              labels: {
+                color: chartLabelColor,
+                boxWidth: 10,
+                boxHeight: 10,
+                usePointStyle: true
+              }
+            },
+            tooltip: {
+              backgroundColor: '#111722',
+              borderColor: '#252b3b',
+              borderWidth: 1,
+              titleColor: '#f5f7fb',
+              bodyColor: '#cbd2e1',
+              callbacks: {
+                label: function (context) {
+                  return context.dataset.label + ': ' + (isRevenue
+                    ? '$' + Number(context.parsed.y).toFixed(2)
+                    : context.parsed.y + ' subscribed');
+                },
+                footer: function (items) {
+                  const total = items.reduce(function (sum, item) { return sum + item.parsed.y; }, 0);
+                  return 'Total: ' + (isRevenue ? '$' + total.toFixed(2) : total + ' subscribed');
                 }
-                const total = items.reduce(function (sum, item) { return sum + item.parsed.y; }, 0);
-                return 'Total: $' + total.toFixed(2);
               }
             }
-          }
-        },
-        scales: {
-          x: {
-            stacked: !isRevenue,
-            grid: { color: 'transparent' },
-            ticks: { color: chartLabelColor }
           },
-          y: {
-            stacked: !isRevenue,
-            beginAtZero: true,
-            ticks: isRevenue
-              ? { color: chartLabelColor, callback: function (value) { return '$' + value; } }
-              : { color: chartLabelColor, precision: 0 },
-            grid: { color: chartGridColor }
+          scales: {
+            x: {
+              stacked: !isRevenue,
+              grid: { color: 'transparent' },
+              ticks: { color: chartLabelColor }
+            },
+            y: {
+              stacked: !isRevenue,
+              beginAtZero: true,
+              ticks: isRevenue
+                ? { color: chartLabelColor, callback: function (value) { return '$' + value; } }
+                : { color: chartLabelColor, precision: 0 },
+              grid: { color: chartGridColor }
+            }
           }
         }
-      }
-    });
+      });
+    };
 
-    if (toggle) {
-      toggle.addEventListener('click', function (event) {
+    render();
+
+    if (rangeToggle) {
+      rangeToggle.addEventListener('click', function (event) {
         const button = event.target.closest('button[data-range]');
-        if (!button || button.dataset.range === activeRange) {
-          return;
-        }
-
-        const trend = trends[button.dataset.range];
-        if (!trend) {
+        if (!button || button.dataset.range === activeRange || !trends[button.dataset.range]) {
           return;
         }
 
         activeRange = button.dataset.range;
-
-        toggle.querySelectorAll('button[data-range]').forEach(function (btn) {
-          btn.classList.remove('bg-[#DC131C]', 'text-white');
-          btn.classList.add('hover:text-white');
-        });
-        button.classList.add('bg-[#DC131C]', 'text-white');
-        button.classList.remove('hover:text-white');
-
-        chart.data.labels = trend.labels;
-        chart.data.datasets = buildDatasets(trend);
-        chart.update();
+        setActiveToggleButton(rangeToggle, button);
+        render();
       });
     }
-  };
 
-  initPlanTrendChart('subscriberBarChart', 'planRevenueRangeToggle', 'subscriptions');
-  initPlanTrendChart('planRevenueAmountChart', 'planRevenueAmountRangeToggle', 'revenue');
+    if (metricToggle) {
+      metricToggle.addEventListener('click', function (event) {
+        const button = event.target.closest('button[data-metric]');
+        if (!button || button.dataset.metric === activeMetric) {
+          return;
+        }
+
+        activeMetric = button.dataset.metric;
+        setActiveToggleButton(metricToggle, button);
+        render();
+      });
+    }
+  })();
 
   const locationCanvas = document.getElementById('locationChart');
   if (locationCanvas) {

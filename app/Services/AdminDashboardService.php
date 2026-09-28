@@ -47,6 +47,7 @@ class AdminDashboardService
             'engagementTrend' => $this->engagementTrend(),
             'planSubscriberCounts' => $this->planSubscriberCounts(),
             'planRevenueTrend' => $this->planRevenueTrend(),
+            'registeredUsersTrend' => $this->registeredUsersTrend(),
             'topHosts' => User::query()
                 ->withCount('meetings')
                 ->whereHas('meetings')
@@ -147,7 +148,44 @@ class AdminDashboardService
     }
 
     /**
-     * Plans subscribed over time for the "Revenue by Plan" chart, broken
+     * Newly registered users for the "Registered Users" chart, broken down
+     * by day (last 30 days), month (last 12 months), and year (last 5 years).
+     *
+     * @return array<string, array{labels: array<int, string>, users: array<int, int>}>
+     */
+    private function registeredUsersTrend(): array
+    {
+        $now = CarbonImmutable::now();
+
+        $ranges = [
+            'day' => [$now->subDays(29)->startOfDay(), $now->endOfDay(), '%Y-%m-%d', 'Y-m-d', 'd M', 'addDay'],
+            'month' => [$now->startOfMonth()->subMonths(11), $now->endOfMonth(), '%Y-%m', 'Y-m', 'M Y', 'addMonthNoOverflow'],
+            'year' => [$now->startOfYear()->subYears(4), $now->endOfYear(), '%Y', 'Y', 'Y', 'addYearNoOverflow'],
+        ];
+
+        $trend = [];
+        foreach ($ranges as $range => [$start, $end, $sqlFormat, $bucketFormat, $labelFormat, $step]) {
+            $usersByBucket = User::query()
+                ->whereBetween('created_at', [$start, $end])
+                ->selectRaw('DATE_FORMAT(created_at, ?) as bucket, COUNT(*) as total', [$sqlFormat])
+                ->groupBy('bucket')
+                ->pluck('total', 'bucket');
+
+            $labels = [];
+            $users = [];
+            for ($cursor = $start; $cursor->lte($end); $cursor = $cursor->{$step}()) {
+                $labels[] = $cursor->format($labelFormat);
+                $users[] = (int) ($usersByBucket[$cursor->format($bucketFormat)] ?? 0);
+            }
+
+            $trend[$range] = compact('labels', 'users');
+        }
+
+        return $trend;
+    }
+
+    /**
+     * Plans subscribed over time for the "Plan Revenue" chart, broken
      * down by day (last 30 days), month (last 12 months), and year (last 5
      * years): per active plan, new subscriptions and revenue from succeeded
      * payments in each bucket.

@@ -681,6 +681,11 @@ class SubscriptionController extends Controller
 
         if ($paymentIntentId) {
 
+            // Record what Stripe will actually charge (its invoice total, in
+            // cents), not the local plan price — the two drift apart whenever
+            // a plan's price is edited without updating its Stripe Price.
+            $latestInvoice = $stripeSubscription?->latest_invoice;
+
             Payment::create([
 
                 'user_id' =>
@@ -692,8 +697,14 @@ class SubscriptionController extends Controller
                 'stripe_payment_intent_id' =>
                     $paymentIntentId,
 
+                'stripe_invoice_id' =>
+                    $latestInvoice?->id,
+
                 'amount' =>
-                    (int) round($price * 100),
+                    $latestInvoice?->amount_due ?? (int) round($price * 100),
+
+                'currency' =>
+                    $latestInvoice?->currency ?? 'usd',
 
                 'status' =>
                     'pending',
