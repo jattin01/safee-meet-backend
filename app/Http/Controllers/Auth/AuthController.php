@@ -579,7 +579,7 @@ class AuthController extends Controller
                 'max:150',
             ],
             'source' => [
-                'required',
+                'nullable',
                 'string',
                 'in:app_login,app_register,settings',
             ],
@@ -588,12 +588,12 @@ class AuthController extends Controller
                 'array',
             ],
             'consents.*.type' => [
-                'required',
+                'nullable',
                 'string',
                 'in:otp,alerts,marketing',
             ],
             'consents.*.granted' => [
-                'required',
+                'nullable',
                 'boolean',
             ],
         ]);
