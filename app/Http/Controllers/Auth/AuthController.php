@@ -404,6 +404,167 @@ class AuthController extends Controller
 
     // ── POST /api/v1/auth/phone-otp/send ─────────────────────────────────────
 
+    // public function sendPhoneOtp(Request $request): JsonResponse
+    // {
+    //     $request->validate([
+    //         'phone' => [
+    //             'required',
+    //             'string',
+    //             'regex:/^\+?[1-9]\d{7,14}$/',
+    //         ],
+    //         'name' => [
+    //             'nullable',
+    //             'string',
+    //             'max:150',
+    //         ],
+    //     ]);
+
+    //     $phone = $this->normalizePhone($request->input('phone'));
+    //     $name = $request->input('name');
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Static OTP Test Numbers
+    //     |--------------------------------------------------------------------------
+    //     |
+    //     | India:
+    //     | +919812374311
+    //     |
+    //     | International:
+    //     | +(732)207-5598
+    //     | +17322075598
+    //     |
+    //     */
+
+    //     $isTestPhone = in_array($phone, [
+    //         '+919812374311',
+    //         '9812374311',
+    //         '+919812228985',
+    //         '9812228985',
+    //         '+919795449722',
+    //         '9795449722',
+    //         '+918002359221',
+    //         '8002359221',
+    //         '+919548621727',
+    //         '9548621727',
+    //         '+919795449722',
+    //         '919795449722',
+    //         '+917982326382',
+    //         '+918368144620',
+    //         '+919039212234',
+    //         // '+17322075598',
+    //         // '17322075598',
+    //         '+918882354145',
+    //         '+919198720108',
+    //         '+919728281947',
+
+    //     ], true);
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Generate OTP
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     $otp = $isTestPhone
+    //         ? '123456'
+    //         : str_pad(
+    //             random_int(0, 999999),
+    //             6,
+    //             '0',
+    //             STR_PAD_LEFT
+    //         );
+
+    //     $cacheKey = 'phone_otp_'.hash('sha256', $phone);
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Store OTP in Cache
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     Cache::put(
+    //         $cacheKey,
+    //         [
+    //             'otp' => $otp,
+    //             'name' => $name,
+    //             'phone' => $phone,
+    //             'attempts' => 0,
+    //         ],
+    //         now()->addMinutes(10)
+    //     );
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Send OTP via Telesign
+    //     |--------------------------------------------------------------------------
+    //     |
+    //     | Test numbers:
+    //     | SMS will NOT be sent.
+    //     |
+    //     | Other numbers:
+    //     | SMS will be sent through Telesign.
+    //     |
+    //     */
+
+    //     if (! $isTestPhone) {
+
+    //         $smsSent = app(TelesignSmsService::class)->sendOtp($phone, $otp);
+
+    //     } else {
+
+    //         // Test phone - skip SMS
+    //         $smsSent = true;
+
+    //         Log::info('Test phone - using static OTP 123456', [
+    //             'phone' => $phone,
+    //         ]);
+    //     }
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Response Data
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     $data = [
+    //         'phone' => $phone,
+    //         'expires_in' => 600,
+    //     ];
+
+    //     // Only expose OTP in local environment
+    //     if (app()->environment('local')) {
+    //         $data['dev_otp'] = $otp;
+    //     }
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | SMS Failed
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     if (! $smsSent && ! app()->environment('local')) {
+
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Failed to send OTP. Please try again.',
+    //             'error' => 'SMS delivery failed',
+    //         ], 500);
+    //     }
+
+    //     /*
+    //     |--------------------------------------------------------------------------
+    //     | Success Response
+    //     |--------------------------------------------------------------------------
+    //     */
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'message' => 'OTP sent successfully to '.$phone,
+    //         'data' => $data,
+    //     ]);
+    // }
+
     public function sendPhoneOtp(Request $request): JsonResponse
     {
         $request->validate([
@@ -417,6 +578,24 @@ class AuthController extends Controller
                 'string',
                 'max:150',
             ],
+            'source' => [
+                'required',
+                'string',
+                'in:app_login,app_register,settings',
+            ],
+            'consents' => [
+                'required',
+                'array',
+            ],
+            'consents.*.type' => [
+                'required',
+                'string',
+                'in:otp,alerts,marketing',
+            ],
+            'consents.*.granted' => [
+                'required',
+                'boolean',
+            ],
         ]);
 
         $phone = $this->normalizePhone($request->input('phone'));
@@ -424,16 +603,60 @@ class AuthController extends Controller
 
         /*
         |--------------------------------------------------------------------------
-        | Static OTP Test Numbers
+        | Extract Consent Values
+        |--------------------------------------------------------------------------
+        */
+
+        $consents = collect($request->input('consents'));
+
+        $otpConsent = $consents->firstWhere('type', 'otp');
+        $alertsConsent = $consents->firstWhere('type', 'alerts');
+        $marketingConsent = $consents->firstWhere('type', 'marketing');
+
+        $otpGranted = (bool) ($otpConsent['granted'] ?? false);
+        $alertsGranted = (bool) ($alertsConsent['granted'] ?? false);
+        $marketingGranted = (bool) ($marketingConsent['granted'] ?? false);
+
+        /*
+        |--------------------------------------------------------------------------
+        | OTP Consent Is Mandatory
+        |--------------------------------------------------------------------------
+        */
+
+        if (!$otpGranted) {
+            return response()->json([
+                'success' => false,
+                'code' => 'OTP_CONSENT_REQUIRED',
+                'message' => 'OTP consent is required before sending OTP.',
+            ], 422);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Save Consent
         |--------------------------------------------------------------------------
         |
-        | India:
-        | +919812374311
+        | If user already exists, save consent directly to users table.
         |
-        | International:
-        | +(732)207-5598
-        | +17322075598
+        | For registration, user may not exist yet, so consent will be
+        | temporarily stored in OTP cache and saved when user is created.
         |
+        */
+
+        $existingUser = User::where('phone', $phone)->first();
+
+        if ($existingUser) {
+            $existingUser->update([
+                'otp_consent' => $otpGranted,
+                'alerts_consent' => $alertsGranted,
+                'marketing_consent' => $marketingGranted,
+            ]);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Static OTP Test Numbers
+        |--------------------------------------------------------------------------
         */
 
         $isTestPhone = in_array($phone, [
@@ -457,7 +680,6 @@ class AuthController extends Controller
             '+918882354145',
             '+919198720108',
             '+919728281947',
-
         ], true);
 
         /*
@@ -475,12 +697,16 @@ class AuthController extends Controller
                 STR_PAD_LEFT
             );
 
-        $cacheKey = 'phone_otp_'.hash('sha256', $phone);
+        $cacheKey = 'phone_otp_' . hash('sha256', $phone);
 
         /*
         |--------------------------------------------------------------------------
-        | Store OTP in Cache
+        | Store OTP + Consent in Cache
         |--------------------------------------------------------------------------
+        |
+        | This is especially important for new registration users because
+        | the user record does not exist yet.
+        |
         */
 
         Cache::put(
@@ -490,6 +716,11 @@ class AuthController extends Controller
                 'name' => $name,
                 'phone' => $phone,
                 'attempts' => 0,
+
+                // Consent information
+                'otp_consent' => $otpGranted,
+                'alerts_consent' => $alertsGranted,
+                'marketing_consent' => $marketingGranted,
             ],
             now()->addMinutes(10)
         );
@@ -498,18 +729,12 @@ class AuthController extends Controller
         |--------------------------------------------------------------------------
         | Send OTP via Telesign
         |--------------------------------------------------------------------------
-        |
-        | Test numbers:
-        | SMS will NOT be sent.
-        |
-        | Other numbers:
-        | SMS will be sent through Telesign.
-        |
         */
 
-        if (! $isTestPhone) {
+        if (!$isTestPhone) {
 
-            $smsSent = app(TelesignSmsService::class)->sendOtp($phone, $otp);
+            $smsSent = app(TelesignSmsService::class)
+                ->sendOtp($phone, $otp);
 
         } else {
 
@@ -543,7 +768,7 @@ class AuthController extends Controller
         |--------------------------------------------------------------------------
         */
 
-        if (! $smsSent && ! app()->environment('local')) {
+        if (!$smsSent && !app()->environment('local')) {
 
             return response()->json([
                 'success' => false,
@@ -560,7 +785,7 @@ class AuthController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'OTP sent successfully to '.$phone,
+            'message' => 'OTP sent successfully to ' . $phone,
             'data' => $data,
         ]);
     }
