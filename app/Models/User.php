@@ -71,6 +71,9 @@ class User extends Authenticatable
         'password',
         'phone',
         'phone_verified_at',
+        'otp_consent',
+        'alerts_consent',
+        'marketing_consent',
         'role',
         'verification_level',
         'verification_level_id',
@@ -140,6 +143,9 @@ class User extends Authenticatable
             // the underlying column type (char ULID today, bigint after the
             // migration) — keeps the client contract stable either way.
             'id' => 'string',
+            'otp_consent' => 'boolean',
+            'alerts_consent' => 'boolean',
+            'marketing_consent' => 'boolean',
             'is_chat_enabled' => 'boolean',
             'is_meeting_enabled' => 'boolean',
             'is_sos_enabled' => 'boolean',

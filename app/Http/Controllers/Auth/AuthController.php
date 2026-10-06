@@ -1032,6 +1032,13 @@ class AuthController extends Controller
 
             $result = $authService->register($payload);
 
+            // Save consent captured in sendPhoneOtp (read from OTP cache before it was cleared)
+            $result['user']->update([
+                'otp_consent' => (bool) ($stored['otp_consent'] ?? false),
+                'alerts_consent' => (bool) ($stored['alerts_consent'] ?? false),
+                'marketing_consent' => (bool) ($stored['marketing_consent'] ?? false),
+            ]);
+
             return response()->json([
                 'success' => true,
                 'message' => 'Registration successful.',
@@ -1310,6 +1317,10 @@ class AuthController extends Controller
                     'phone' => $phone,
                     'job_title' => $jobTitleId,
                     'phone_verified_at' => now(),
+                    // Consent captured in sendPhoneOtp and kept in the OTP cache
+                    'otp_consent' => (bool) ($stored['otp_consent'] ?? false),
+                    'alerts_consent' => (bool) ($stored['alerts_consent'] ?? false),
+                    'marketing_consent' => (bool) ($stored['marketing_consent'] ?? false),
                     'firebase_uid' => $stored['firebase_uid'] ?? null,
                     'status' => 'active',
                     'onboarding_status' => 'completed',
