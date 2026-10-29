@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Services\Auth\AuthService;
 use App\Services\SafetyPointService;
 use App\Services\Sms\TelesignSmsService;
+use App\Services\Sms\TelnyxVerifyService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -717,6 +718,9 @@ class AuthController extends Controller
                 'phone' => $phone,
                 'attempts' => 0,
 
+                // Non-test phones: OTP is generated and verified by Telnyx
+                'telnyx' => !$isTestPhone,
+
                 // Consent information
                 'otp_consent' => $otpGranted,
                 'alerts_consent' => $alertsGranted,
@@ -727,14 +731,17 @@ class AuthController extends Controller
 
         /*
         |--------------------------------------------------------------------------
-        | Send OTP via Telesign
+        | Send OTP via Telnyx
         |--------------------------------------------------------------------------
         */
 
         if (!$isTestPhone) {
 
-            $smsSent = app(TelesignSmsService::class)
-                ->sendOtp($phone, $otp);
+            // $smsSent = app(TelesignSmsService::class)
+            //     ->sendOtp($phone, $otp);
+
+            $smsSent = app(TelnyxVerifyService::class)
+                ->sendOtp($phone);
 
         } else {
 
@@ -758,7 +765,9 @@ class AuthController extends Controller
         ];
 
         // Only expose OTP in local environment
-        if (app()->environment('local')) {
+        // Only test phones' OTP is known locally; Telnyx OTPs are not
+        // if (app()->environment('local')) {
+        if (app()->environment('local') && $isTestPhone) {
             $data['dev_otp'] = $otp;
         }
 
@@ -768,7 +777,8 @@ class AuthController extends Controller
         |--------------------------------------------------------------------------
         */
 
-        if (!$smsSent && !app()->environment('local')) {
+        // if (!$smsSent && !app()->environment('local')) {
+        if (!$smsSent) {
 
             return response()->json([
                 'success' => false,
@@ -854,7 +864,12 @@ class AuthController extends Controller
         }
 
         // Verify OTP
-        if ($stored['otp'] !== $request->input('otp')) {
+        // if ($stored['otp'] !== $request->input('otp')) {
+        $isOtpValid = !empty($stored['telnyx'])
+            ? app(TelnyxVerifyService::class)->verifyOtp($phone, $request->input('otp'))
+            : $stored['otp'] === $request->input('otp');
+
+        if (! $isOtpValid) {
             $stored['attempts'] = ($stored['attempts'] ?? 0) + 1;
             Cache::put($cacheKey, $stored, now()->addMinutes(10));
 
@@ -982,7 +997,12 @@ class AuthController extends Controller
         }
 
         // Verify OTP
-        if ($stored['otp'] !== $request->input('otp')) {
+        // if ($stored['otp'] !== $request->input('otp')) {
+        $isOtpValid = !empty($stored['telnyx'])
+            ? app(TelnyxVerifyService::class)->verifyOtp($phone, $request->input('otp'))
+            : $stored['otp'] === $request->input('otp');
+
+        if (! $isOtpValid) {
             $stored['attempts'] = ($stored['attempts'] ?? 0) + 1;
             Cache::put($cacheKey, $stored, now()->addMinutes(10));
 

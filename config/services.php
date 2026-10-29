@@ -73,6 +73,11 @@ return [
         'sender_id' => env('TELESIGN_SENDER_ID'),  // optional, if using a branded sender
     ],
 
+    'telnyx' => [
+        'api_key' => env('TELNYX_API_KEY'),
+        'verify_profile_id' => env('TELNYX_VERIFY_PROFILE_ID'),
+    ],
+
     'signzy' => [
         'enabled' => env('SIGNZY_ENABLED', env('SEARCHBUG_ENABLED', false)),
         // Confirmed via Signzy API response: dob must be YYYY-MM-DD (ISO 8601), not m/d/Y.

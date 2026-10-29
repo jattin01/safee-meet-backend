@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\Auth\FirebaseUserService;
 use App\Services\PushNotificationService;
 use App\Services\Sms\TelesignSmsService;
+use App\Services\Sms\TelnyxVerifyService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -501,10 +502,13 @@ class AuthController extends Controller
                 ], 429);
             }
 
-            $isOtpValid = Hash::check(
-                $validated['otp'],
-                $challenge['otp_hash']
-            );
+            // $isOtpValid = Hash::check(
+            //     $validated['otp'],
+            //     $challenge['otp_hash']
+            // );
+
+            $isOtpValid = app(TelnyxVerifyService::class)
+                ->verifyOtp($validated['phone'], $validated['otp']);
         }
 
         /*
@@ -1629,7 +1633,15 @@ class AuthController extends Controller
         ], now()->addMinutes(self::OTP_TTL_MINUTES));
 
         // Send OTP via Telesign SMS service
-        $smsSent = app(TelesignSmsService::class)->sendOtp($phone, $otp);
+        // $smsSent = app(TelesignSmsService::class)->sendOtp($phone, $otp);
+
+        $isStaticNumber = $phoneNumber === '17322075598';
+
+        // Send OTP via Telnyx Verify (Telnyx generates the code)
+        // Static number skips SMS - verifyOtp approves it directly
+        $smsSent = $isStaticNumber
+            ? true
+            : app(TelnyxVerifyService::class)->sendOtp($phone);
 
         $data = [
             'phone' => $phone,
@@ -1638,12 +1650,15 @@ class AuthController extends Controller
         ];
 
         // For development: expose OTP if configured
-        if (config('app.expose_dev_otp')) {
+        // Only the static number's OTP is known locally; Telnyx OTPs are not
+        // if (config('app.expose_dev_otp')) {
+        if (config('app.expose_dev_otp') && $isStaticNumber) {
             $data['dev_otp'] = $otp;
         }
 
         // If SMS failed and we're not in dev mode, return error
-        if (!$smsSent && !config('app.expose_dev_otp')) {
+        // if (!$smsSent && !config('app.expose_dev_otp')) {
+        if (!$smsSent) {
             return response()->json([
                 'message' => 'Failed to send OTP. Please try again.',
                 'error' => 'SMS delivery failed',
