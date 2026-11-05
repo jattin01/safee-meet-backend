@@ -138,6 +138,12 @@
         </div>
     @endif
 
+    @if(session('error'))
+        <div class="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            {{ session('error') }}
+        </div>
+    @endif
+
     <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div class="flex items-center gap-3 justify-center md:justify-start">
             <button @click="activeTab = 'monthly'"

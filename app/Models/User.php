@@ -124,6 +124,7 @@ class User extends Authenticatable
         'otp_code',
         'email_encrypted',
         'phone_encrypted',
+        'stripe_customer_id',
     ];
 
     // Expose BOTH safee names in every array/JSON response, whichever the

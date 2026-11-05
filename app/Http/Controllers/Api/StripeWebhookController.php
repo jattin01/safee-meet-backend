@@ -6,8 +6,13 @@ use App\Http\Controllers\Controller;
 use App\Mail\SubscriptionInvoiceMail;
 use App\Models\Payment;
 use App\Models\PaymentWebhookEvent;
+use App\Models\Coupon;
 use App\Models\Subscription;
+use App\Models\SubscriptionPlan;
+use App\Models\User;
 use App\Services\PushNotificationService;
+use App\Services\StripeService;
+use App\Services\SubscriptionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -160,7 +165,7 @@ class StripeWebhookController extends Controller
             $subscription->update([
                 'status' => 'expired',
             ]);
-            $subscription->user()->update(['subscription_status' => 'expired']);
+            $this->syncUserStatus($subscription, 'expired');
             $payment->update([
                 'status' => 'failed',
             ]);
@@ -172,7 +177,7 @@ class StripeWebhookController extends Controller
                 'status' => 'cancelled',
                 'cancelled_at' => now(),
             ]);
-            $subscription->user()->update(['subscription_status' => 'cancelled']);
+            $this->syncUserStatus($subscription, 'cancelled');
             break;
 
         default:
@@ -201,17 +206,33 @@ class StripeWebhookController extends Controller
     private function handleInvoicePaid($event): void
     {
         $invoice = $event->data->object;
-        $subscription = Subscription::where('stripe_subscription_id', $this->invoiceSubscriptionId($invoice))->first();
+        $stripeSubscriptionId = $this->invoiceSubscriptionId($invoice);
 
-        if (! $subscription) {
+        if (! $stripeSubscriptionId) {
             return;
         }
 
-        $subscription->update([
-            'status' => 'active',
-            'renews_at' => $subscription->billing_cycle === 'yearly' ? now()->addYear() : now()->addMonth(),
-        ]);
-        $subscription->user()->update(['subscription_status' => 'active']);
+        $subscription = Subscription::where('stripe_subscription_id', $stripeSubscriptionId)->first();
+        $isFirstPayment = false;
+
+        if ($subscription) {
+            // Renewal (or a pre-existing incomplete row being paid).
+            $subscription->update([
+                'status' => 'active',
+                'renews_at' => $subscription->billing_cycle === 'yearly' ? now()->addYear() : now()->addMonth(),
+            ]);
+            $subscription->user()->update(['subscription_status' => 'active']);
+        } else {
+            // First payment of a subscribe() checkout — nothing exists
+            // locally until now.
+            $subscription = $this->activateFromStripe($stripeSubscriptionId);
+
+            if (! $subscription) {
+                return;
+            }
+
+            $isFirstPayment = $subscription->wasRecentlyCreated;
+        }
 
         // Newer Stripe API versions no longer put payment_intent on the
         // invoice; only set it when present so the id stored at checkout
@@ -229,7 +250,68 @@ class StripeWebhookController extends Controller
             ], fn ($value) => $value !== null),
         );
 
+        if ($isFirstPayment) {
+            app(PushNotificationService::class)->sendToUser(
+                $subscription->user,
+                'Subscription purchase successful',
+                'Your plan was purchased successfully.',
+                ['type' => 'subscription_purchased', 'subscription_id' => (string) $subscription->id],
+            );
+        }
+
         $this->sendInvoiceMail($subscription, $payment);
+    }
+
+    /**
+     * Creates the local subscription for a paid plan from the metadata
+     * subscribe() attached to the Stripe subscription, now that its first
+     * invoice is paid. Returns the existing row on a repeated delivery.
+     */
+    private function activateFromStripe(string $stripeSubscriptionId): ?Subscription
+    {
+        $stripeSubscription = app(StripeService::class)->retrieveSubscription($stripeSubscriptionId);
+        $metadata = $stripeSubscription->metadata;
+
+        $user = User::find($metadata['user_id'] ?? null);
+        $plan = SubscriptionPlan::find($metadata['plan_id'] ?? null);
+
+        if (! $user || ! $plan) {
+            Log::error('Paid Stripe subscription has no matching user/plan', [
+                'stripe_subscription_id' => $stripeSubscriptionId,
+                'user_id' => $metadata['user_id'] ?? null,
+                'plan_id' => $metadata['plan_id'] ?? null,
+            ]);
+
+            return null;
+        }
+
+        $billingCycle = ($metadata['billing_cycle'] ?? null) === 'yearly' ? 'yearly' : 'monthly';
+
+        return app(SubscriptionService::class)->activate($user, $plan, [
+            'price' => $metadata['price'] ?? ($billingCycle === 'yearly' ? $plan->yearly_price : $plan->monthly_price),
+            'billing_cycle' => $billingCycle,
+            'status' => 'active',
+            'renews_at' => $billingCycle === 'yearly' ? now()->addYear() : now()->addMonth(),
+            'stripe_customer_id' => $stripeSubscription->customer,
+            'stripe_subscription_id' => $stripeSubscription->id,
+        ], Coupon::find($metadata['coupon_id'] ?? null), (float) ($metadata['coupon_discount'] ?? 0));
+    }
+
+    /**
+     * Mirrors a non-active status onto the user only when this subscription
+     * is the one they're on — events for a replaced or abandoned subscription
+     * must not knock the user off the plan that replaced it.
+     */
+    private function syncUserStatus(Subscription $subscription, string $status): void
+    {
+        $hasOtherLivePlan = Subscription::where('user_id', $subscription->user_id)
+            ->whereKeyNot($subscription->getKey())
+            ->whereIn('status', ['trial', 'active'])
+            ->exists();
+
+        if (! $hasOtherLivePlan) {
+            $subscription->user()->update(['subscription_status' => $status]);
+        }
     }
 
     /**
@@ -268,7 +350,7 @@ class StripeWebhookController extends Controller
         }
 
         $subscription->update(['status' => 'expired']);
-        $subscription->user()->update(['subscription_status' => 'expired']);
+        $this->syncUserStatus($subscription, 'expired');
 
         Payment::updateOrCreate(
             ['stripe_invoice_id' => $invoice->id],
@@ -288,11 +370,13 @@ class StripeWebhookController extends Controller
         $stripeSubscription = $event->data->object;
         $subscription = Subscription::where('stripe_subscription_id', $stripeSubscription->id)->first();
 
-        if (! $subscription) {
+        // Already closed locally — e.g. replaced by an upgrade, which is what
+        // cancelled it on Stripe in the first place.
+        if (! $subscription || $subscription->status === 'cancelled') {
             return;
         }
 
         $subscription->update(['status' => 'cancelled', 'cancelled_at' => now()]);
-        $subscription->user()->update(['subscription_status' => 'cancelled']);
+        $this->syncUserStatus($subscription, 'cancelled');
     }
 }

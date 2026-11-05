@@ -4,24 +4,20 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Coupon;
-use App\Models\CouponRedemption;
 use App\Models\Feature;
-use App\Models\Payment;
-use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
-use App\Services\PlanEntitlements;
 use App\Services\StripeService;
+use App\Services\SubscriptionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
-use App\Models\UserSubscription;
 
 class SubscriptionController extends Controller
 {
     public function __construct(
         private readonly StripeService $stripe,
-        private readonly PlanEntitlements $entitlements,
+        private readonly SubscriptionService $subscriptions,
     ) {}
 
     /**
@@ -280,498 +276,141 @@ class SubscriptionController extends Controller
     //     return response()->json($response, 201);
     // }
     public function subscribe(Request $request): JsonResponse
-{
-    $validated = $request->validate([
-        'plan_slug' => [
-            'required',
-            'string',
-            Rule::exists('subscription_plans', 'slug')
-                ->where('is_active', true),
-        ],
+    {
+        $validated = $request->validate([
+            'plan_slug' => ['required', 'string', Rule::exists('subscription_plans', 'slug')->where('is_active', true)],
+            'billing_cycle' => ['required', Rule::in(['monthly', 'yearly'])],
+            'stripe_payment_method_id' => ['nullable', 'string'],
+            'coupon_code' => ['nullable', 'string', 'max:40'],
+        ]);
 
-        'billing_cycle' => [
-            'required',
-            Rule::in(['monthly', 'yearly']),
-        ],
+        $user = $request->user();
+        $plan = SubscriptionPlan::where('slug', $validated['plan_slug'])->with('comparisonFeatures')->firstOrFail();
 
-        'stripe_payment_method_id' => [
-            'nullable',
-            'string',
-        ],
-
-        'coupon_code' => [
-            'nullable',
-            'string',
-            'max:40',
-        ],
-    ]);
-
-    $user = $request->user();
-
-    $plan = SubscriptionPlan::where(
-        'slug',
-        $validated['plan_slug']
-    )->with('comparisonFeatures')->firstOrFail();
-
-    // Enforce the same account_type targeting that plans()/comparison() use
-    // to decide what's shown — 'both' is open to everyone, otherwise the
-    // plan's account_type must match the buyer's, so a normal user can't
-    // buy an employer-only plan (or vice versa) even by calling the API
-    // directly with a known slug.
-    if ($plan->account_type !== 'both' && $plan->account_type !== $user->account_type) {
-        return response()->json([
-            'message' => 'This plan is not available for your account type.',
-        ], 422);
-    }
-
-    // Freeze the plan's current matrix before creating the user's historical
-    // subscription row. Later admin edits affect new purchases only.
-    $featureSnapshot = $this->entitlements->snapshotFor($plan);
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | Resolve & Validate Coupon (optional)
-    |--------------------------------------------------------------------------
-    | Note: the discount is applied to the price we record locally (and to
-    | any local Payment row). It does not change the Stripe Price object
-    | itself — a paid plan still bills the full Stripe price unless a
-    | corresponding Stripe coupon/promotion code is separately configured.
-    */
-
-    $appliedCoupon = null;
-    $couponDiscount = 0.0;
-
-    if (! empty($validated['coupon_code'])) {
-        $appliedCoupon = Coupon::where('code', strtoupper($validated['coupon_code']))->first();
-
-        if (! $appliedCoupon) {
-            return response()->json(['message' => 'Invalid coupon code.'], 422);
-        }
-
-        $couponError = $appliedCoupon->eligibilityError($user->id, $plan, $validated['billing_cycle']);
-
-        if ($couponError) {
-            return response()->json(['message' => $couponError], 422);
-        }
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | Find Existing Open Subscriptions
-    |--------------------------------------------------------------------------
-    */
-
-    $stillOpen = $user->subscriptions()
-        ->whereIn('status', [
-            'trial',
-            'active',
-            'incomplete',
-        ])
-        ->get();
-
-    /*
-    |--------------------------------------------------------------------------
-    | Determine Trial & Price
-    |--------------------------------------------------------------------------
-    */
-
-    $isTrial = (int) $plan->trial_days > 0;
-
-    $price = $validated['billing_cycle'] === 'yearly'
-        ? $plan->yearly_price
-        : $plan->monthly_price;
-
-    if ($appliedCoupon) {
-        $couponDiscount = $appliedCoupon->discountFor((float) $price);
-        $price = round((float) $price - $couponDiscount, 2);
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | Validate Payment Method
-    |--------------------------------------------------------------------------
-    */
-
-    if (
-        ! $isTrial &&
-        (float) $price > 0 &&
-        empty($validated['stripe_payment_method_id'])
-    ) {
-        return response()->json([
-            'message' => 'A payment method is required for this plan.',
-        ], 422);
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | Stripe Subscription Creation
-    |--------------------------------------------------------------------------
-    */
-
-    $needsStripe = ! $isTrial && (float) $price > 0;
-
-    $stripeCustomer = null;
-    $stripeSubscription = null;
-
-    if ($needsStripe) {
-
-        $priceId = $this->stripe->resolvePriceId(
-            $plan,
-            $validated['billing_cycle']
-        );
-
-        if (! $priceId) {
+        // Enforce the same account_type targeting that plans()/comparison() use
+        // to decide what's shown — 'both' is open to everyone, otherwise the
+        // plan's account_type must match the buyer's, so a normal user can't
+        // buy an employer-only plan (or vice versa) even by calling the API
+        // directly with a known slug.
+        if ($plan->account_type !== 'both' && $plan->account_type !== $user->account_type) {
             return response()->json([
-                'message' =>
-                    "Plan '{$plan->slug}' has no Stripe price configured for "
-                    . "{$validated['billing_cycle']} billing.",
+                'message' => 'This plan is not available for your account type.',
             ], 422);
         }
 
+        $appliedCoupon = null;
+        $couponDiscount = 0.0;
 
-        $stripeCustomer = $this->stripe->createOrGetCustomer(
-            $user
-        );
+        if (! empty($validated['coupon_code'])) {
+            $appliedCoupon = Coupon::where('code', strtoupper($validated['coupon_code']))->first();
 
+            if (! $appliedCoupon) {
+                return response()->json(['message' => 'Invalid coupon code.'], 422);
+            }
+
+            $couponError = $appliedCoupon->eligibilityError($user->id, $plan, $validated['billing_cycle']);
+
+            if ($couponError) {
+                return response()->json(['message' => $couponError], 422);
+            }
+        }
+
+        $isTrial = (int) $plan->trial_days > 0;
+        $isYearly = $validated['billing_cycle'] === 'yearly';
+
+        // The admin-set (discounted) price — the Stripe Price is kept in sync
+        // with it below, so this is exactly what the user is charged.
+        $price = (float) ($isYearly ? $plan->yearly_price : $plan->monthly_price);
+
+        if ($appliedCoupon) {
+            $couponDiscount = $appliedCoupon->discountFor($price);
+            $price = round($price - $couponDiscount, 2);
+        }
+
+        $needsStripe = ! $isTrial && $price > 0;
+
+        /*
+        |--------------------------------------------------------------------------
+        | Trial / free plans — no payment, active immediately
+        |--------------------------------------------------------------------------
+        */
+
+        if (! $needsStripe) {
+            $subscription = $this->subscriptions->activate($user, $plan, [
+                'price' => $price,
+                'billing_cycle' => $validated['billing_cycle'],
+                'status' => $isTrial ? 'trial' : 'active',
+                'renews_at' => match (true) {
+                    $isTrial => now()->addDays($plan->trial_days),
+                    $isYearly => now()->addYear(),
+                    default => now()->addMonth(),
+                },
+            ], $appliedCoupon, $couponDiscount);
+
+            return response()->json($subscription->load('plan')->toArray(), 201);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Paid plans — create the Stripe subscription only
+        |--------------------------------------------------------------------------
+        | Nothing is written locally here. The current plan stays as-is, and the
+        | subscription, snapshot, payment and coupon redemption are created by
+        | the invoice.paid webhook once the first payment succeeds. Backing out
+        | of the payment sheet therefore leaves no trace beyond an unpaid Stripe
+        | subscription, which is cancelled on the next attempt (or expires).
+        */
+
+        if (empty($validated['stripe_payment_method_id'])) {
+            return response()->json([
+                'message' => 'A payment method is required for this plan.',
+            ], 422);
+        }
+
+        // Self-heals plans added or repriced before Stripe sync existed, so the
+        // Stripe Price always matches the admin-set amount.
+        $this->stripe->syncPlanPrice($plan, $validated['billing_cycle']);
+        $priceId = $this->stripe->resolvePriceId($plan, $validated['billing_cycle']);
+
+        if (! $priceId) {
+            return response()->json([
+                'message' => "Plan '{$plan->slug}' has no Stripe price configured for {$validated['billing_cycle']} billing.",
+            ], 422);
+        }
+
+        $stripeCustomer = $this->stripe->createOrGetCustomer($user);
+        $this->stripe->cancelIncompleteSubscriptions($stripeCustomer);
 
         $stripeSubscription = $this->stripe->createSubscription(
             $stripeCustomer,
             $priceId,
             $validated['stripe_payment_method_id'],
-            null,
-        );
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | Get Payment Intent ID
-    |--------------------------------------------------------------------------
-    */
-
-    $confirmationSecret =
-        $stripeSubscription?->latest_invoice?->confirmation_secret;
-
-    $paymentIntentId = $confirmationSecret
-        ? strstr(
-            $confirmationSecret->client_secret,
-            '_secret_',
-            true
-        )
-        : null;
-
-    // Do not discontinue the working plan until validation and creation of
-    // the replacement Stripe subscription have both succeeded.
-    foreach ($stillOpen as $old) {
-        if ($old->stripe_subscription_id) {
-            try {
-                $this->stripe->cancelSubscription($old->stripe_subscription_id);
-            } catch (\Throwable $e) {
-                // Already cancelled or expired on Stripe.
-            }
-        }
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | Create Local Subscription Records
-    |--------------------------------------------------------------------------
-    */
-
-    $subscription = DB::transaction(function () use (
-        $user,
-        $plan,
-        $validated,
-        $isTrial,
-        $price,
-        $stripeCustomer,
-        $stripeSubscription,
-        $paymentIntentId,
-        $featureSnapshot,
-        $stillOpen,
-        $appliedCoupon,
-        $couponDiscount
-    ) {
-
-        // The old records remain as history, but only the newly-created row
-        // owns the fresh allowance after this transaction commits.
-        foreach ($stillOpen as $old) {
-            $old->update([
-                'status' => 'cancelled',
-                'cancelled_at' => now(),
-            ]);
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Determine Subscription Status
-        |--------------------------------------------------------------------------
-        */
-
-        $status = match (true) {
-            $isTrial => 'trial',
-
-            $stripeSubscription?->status === 'active'
-                => 'active',
-
-            default => 'incomplete',
-        };
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | Calculate Renewal Date
-        |--------------------------------------------------------------------------
-        */
-
-        $renewsAt = match (true) {
-
-            $isTrial => now()->addDays(
-                $plan->trial_days
-            ),
-
-            $validated['billing_cycle'] === 'yearly'
-                => now()->addYear(),
-
-            default => now()->addMonth(),
-        };
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | Create Main Subscription
-        |--------------------------------------------------------------------------
-        */
-
-        $subscription = Subscription::create([
-            'user_id' => $user->id,
-
-            'plan_id' => $plan->id,
-
-            'price' => $price,
-
-            'billing_cycle' =>
-                $validated['billing_cycle'],
-
-            'status' => $status,
-
-            'trial_days' => $plan->trial_days,
-
-            'started_at' => now(),
-
-            'renews_at' => $renewsAt,
-
-            'stripe_customer_id' =>
-                $stripeCustomer?->id,
-
-            'stripe_subscription_id' =>
-                $stripeSubscription?->id,
-        ]);
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | Record Coupon Redemption (if a coupon was applied)
-        |--------------------------------------------------------------------------
-        */
-
-        if ($appliedCoupon) {
-            CouponRedemption::create([
-                'coupon_id' => $appliedCoupon->id,
+            [
                 'user_id' => $user->id,
-                'subscription_id' => $subscription->id,
-                'discount_amount' => $couponDiscount,
-                'redeemed_at' => now(),
-            ]);
+                'plan_id' => $plan->id,
+                'billing_cycle' => $validated['billing_cycle'],
+                'price' => $price,
+                'coupon_id' => $appliedCoupon?->id,
+                'coupon_discount' => $couponDiscount,
+            ],
+            (int) round($couponDiscount * 100),
+        );
 
-            $appliedCoupon->increment('times_redeemed');
-        }
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | Create User Subscription Feature Snapshot
-        |--------------------------------------------------------------------------
-        */
-
-        UserSubscription::create([
-
-            /*
-            |--------------------------------------------------------------
-            | Relationship
-            |--------------------------------------------------------------
-            */
-
+        // App must confirm this client_secret via Stripe SDK (confirmPayment);
+        // the invoice.paid webhook then activates the plan.
+        return response()->json([
             'user_id' => $user->id,
-
             'plan_id' => $plan->id,
-
-
-            /*
-            |--------------------------------------------------------------
-            | Subscription ID
-            |
-            | If subscriptions.subscription_id is a ULID CHAR(26),
-            | this will be stored here.
-            |--------------------------------------------------------------
-            */
-
-            'subscription_id' =>
-                $subscription->subscription_id,
-
-
-            /*
-            |--------------------------------------------------------------
-            | Subscription Details
-            |--------------------------------------------------------------
-            */
-
-            'price' => $price,
-
-            'billing_cycle' =>
-                $validated['billing_cycle'],
-
-            'status' => $status,
-
-            'trial_days' =>
-                $plan->trial_days,
-
-            'started_at' =>
-                $subscription->started_at,
-
-            'renews_at' =>
-                $subscription->renews_at,
-
-            'cancelled_at' => null,
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | Stripe Details
-            |--------------------------------------------------------------------------
-            */
-
-            'stripe_customer_id' =>
-                $stripeCustomer?->id,
-
-            'stripe_subscription_id' =>
-                $stripeSubscription?->id,
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | Subscription Feature Values
-            |--------------------------------------------------------------------------
-            */
-
-            ...$featureSnapshot,
-        ]);
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | Create Payment Record
-        |--------------------------------------------------------------------------
-        */
-
-        if ($paymentIntentId) {
-
-            // Record what Stripe will actually charge (its invoice total, in
-            // cents), not the local plan price — the two drift apart whenever
-            // a plan's price is edited without updating its Stripe Price.
-            $latestInvoice = $stripeSubscription?->latest_invoice;
-
-            Payment::create([
-
-                'user_id' =>
-                    $user->id,
-
-                'subscription_id' =>
-                    $subscription->id,
-
-                'stripe_payment_intent_id' =>
-                    $paymentIntentId,
-
-                'stripe_invoice_id' =>
-                    $latestInvoice?->id,
-
-                'amount' =>
-                    $latestInvoice?->amount_due ?? (int) round($price * 100),
-
-                'currency' =>
-                    $latestInvoice?->currency ?? 'usd',
-
-                'status' =>
-                    'pending',
-            ]);
-        }
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | Update User Current Subscription
-        |--------------------------------------------------------------------------
-        */
-
-        $user->update([
-
-            'plan_id' =>
-                $plan->id,
-
-            'subscription_status' =>
-                $subscription->status,
-        ]);
-
-
-        return $subscription;
-    });
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | Prepare Response
-    |--------------------------------------------------------------------------
-    */
-
-    $response = $subscription
-        ->load('plan')
-        ->toArray();
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | Stripe Payment Confirmation
-    |--------------------------------------------------------------------------
-    */
-
-    if ($confirmationSecret) {
-
-        $response[
-            'payment_intent_client_secret'
-        ] = $confirmationSecret->client_secret;
-
-        $response[
-            'payment_intent_status'
-        ] = $stripeSubscription->status;
+            'price' => number_format($price, 2, '.', ''),
+            'billing_cycle' => $validated['billing_cycle'],
+            'status' => 'incomplete',
+            'stripe_customer_id' => $stripeCustomer->id,
+            'stripe_subscription_id' => $stripeSubscription->id,
+            'plan' => $plan->withoutRelations()->toArray(),
+            'payment_intent_client_secret' => $stripeSubscription->latest_invoice?->confirmation_secret?->client_secret,
+            'payment_intent_status' => $stripeSubscription->status,
+        ], 201);
     }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | Return Response
-    |--------------------------------------------------------------------------
-    */
-
-    return response()->json(
-        $response,
-        201
-    );
-}
 
     /**
      * POST /api/subscriptions/cancel

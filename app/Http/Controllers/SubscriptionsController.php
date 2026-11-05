@@ -6,6 +6,7 @@ use App\Models\Feature;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
+use App\Services\StripeService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -19,7 +20,25 @@ class SubscriptionsController extends Controller
             $action = $request->input('action', 'store');
 
             if ($action === 'delete') {
-                SubscriptionPlan::where('id', $request->input('id'))->delete();
+                $plan = SubscriptionPlan::findOrFail($request->input('id'));
+
+                // Deleting would orphan users still on (and being billed for)
+                // this plan, so it's only allowed once nobody is on it.
+                $liveCount = Subscription::where('plan_id', $plan->id)->whereIn('status', ['trial', 'active'])->count();
+
+                if ($liveCount > 0) {
+                    return redirect()->route('subscription')
+                        ->with('error', "This plan can't be deleted: {$liveCount} user(s) currently have an active or trial subscription on it.");
+                }
+
+                try {
+                    app(StripeService::class)->archivePlanPrices($plan);
+                } catch (\Throwable $e) {
+                    return redirect()->route('subscription')
+                        ->with('error', 'Plan not deleted — archiving its Stripe prices failed: '.$e->getMessage());
+                }
+
+                $plan->delete();
 
                 return redirect()->route('subscription')->with('success', 'Plan deleted successfully.');
             }
@@ -76,6 +95,10 @@ class SubscriptionsController extends Controller
                 // in sync with whatever was checked/typed in the feature grid.
                 $this->syncComparisonFeatures($plan, $request->input('plan_features', []));
 
+                if ($error = $this->syncStripePrices($plan)) {
+                    return redirect()->route('subscription')->with('error', $error);
+                }
+
                 return redirect()->route('subscription')->with('success', 'Plan updated successfully.');
             }
 
@@ -117,6 +140,10 @@ class SubscriptionsController extends Controller
             // right away, so a brand-new plan shows up correctly on the
             // side-by-side comparison instead of every cell defaulting to "No".
             $this->syncComparisonFeatures($plan, $request->input('plan_features', []));
+
+            if ($error = $this->syncStripePrices($plan)) {
+                return redirect()->route('subscription')->with('error', $error);
+            }
 
             return redirect()->route('subscription')->with('success', 'New plan added successfully.');
         }
@@ -179,6 +206,25 @@ class SubscriptionsController extends Controller
         }
 
         $plan->comparisonFeatures()->sync($sync);
+    }
+
+    /**
+     * Point the plan's Stripe Prices at the admin-set amounts, so users are
+     * charged exactly the (discounted) price shown in the app. Returns an
+     * error message for the admin when Stripe couldn't be reached — the next
+     * save, or the next subscribe on this plan, retries the sync.
+     */
+    private function syncStripePrices(SubscriptionPlan $plan): ?string
+    {
+        try {
+            foreach (['monthly', 'yearly'] as $billingCycle) {
+                app(StripeService::class)->syncPlanPrice($plan, $billingCycle);
+            }
+        } catch (\Throwable $e) {
+            return 'Plan saved, but syncing its price to Stripe failed: '.$e->getMessage();
+        }
+
+        return null;
     }
 
     /**
