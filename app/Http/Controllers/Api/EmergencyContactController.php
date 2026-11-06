@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\EmergencyContact;
+use App\Services\Sms\TelnyxSmsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -21,7 +22,8 @@ class EmergencyContactController extends Controller
             'phone_number' => 'required|string|max:20',
         ]);
 
-        $userId = $request->user()->id;
+        $user = $request->user();
+        $userId = $user->id;
 
         $exists = EmergencyContact::where('user_id', $userId)
             ->where('phone_number', $request->phone_number)
@@ -40,6 +42,17 @@ class EmergencyContactController extends Controller
             'relationship' => $request->relationship,
             'phone_number' => $request->phone_number,
         ]);
+
+        // Let the contact know they were added. Runs after the response is
+        // sent so a slow/failed Telnyx call never blocks adding the contact.
+        $userName = $user->name ?: 'A SafeeMeet user';
+        $text = "Hi {$contact->full_name}, {$userName} has added you as their emergency/trusted contact on "
+            . config('app.name', 'SafeeMeet')
+            . ". You may receive alerts if they need help.";
+
+        dispatch(function () use ($contact, $text) {
+            app(TelnyxSmsService::class)->send($contact->phone_number, $text);
+        })->afterResponse();
 
         return response()->json([
             'status' => true,

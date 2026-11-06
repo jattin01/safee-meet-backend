@@ -76,6 +76,9 @@ return [
     'telnyx' => [
         'api_key' => env('TELNYX_API_KEY'),
         'verify_profile_id' => env('TELNYX_VERIFY_PROFILE_ID'),
+        // Used by TelnyxSmsService for non-OTP SMS (e.g. trusted contact alerts).
+        'messaging_profile_id' => env('TELNYX_MESSAGING_PROFILE_ID'),
+        'from_number' => env('TELNYX_FROM_NUMBER'),
     ],
 
     'signzy' => [

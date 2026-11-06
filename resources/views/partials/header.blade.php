@@ -38,6 +38,13 @@
           <p class="text-xs text-[#8f98ad]">{{ $currentAdmin?->role?->name ?? 'Admin' }}</p>
         </div>
       </div>
+
+      <form method="POST" action="{{ route('logout') }}" class="ml-2">
+        @csrf
+        <button type="submit" class="grid h-9 w-9 place-items-center rounded-md border border-[#1a1a1a] bg-[#1a1a1a] text-[#8f98ad] transition hover:text-[#DC131C]" aria-label="Logout" title="Logout">
+          <i class="fa-solid fa-right-from-bracket"></i>
+        </button>
+      </form>
     </div>
   </div>
 </header>

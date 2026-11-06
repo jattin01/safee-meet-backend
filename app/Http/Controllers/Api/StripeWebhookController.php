@@ -34,6 +34,12 @@ class StripeWebhookController extends Controller
      */
     public function __invoke(Request $request): JsonResponse
 {
+    log::info('Stripe webhook received', [
+        'headers' => $request->headers->all(),
+        'body' => $request->getContent(),
+    ]);
+
+
     $payload = $request->getContent();
     $signature = $request->header('Stripe-Signature');
     $webhookSecret = config('services.stripe.webhook_secret');
