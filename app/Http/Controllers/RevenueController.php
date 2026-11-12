@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Payment;
 use App\Models\UserSubscription;
+use App\Services\AdminAuditLogger;
+use App\Services\SubscriptionMetrics;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,11 +17,6 @@ class RevenueController extends Controller
     // row in `payments` at all. Surface it under this synthetic status
     // instead of silently dropping it from an inner join.
     private const NO_PAYMENT_STATUS = 'no_payment';
-
-    // Subscription lifecycle statuses that represent money actually being
-    // recognised as recurring revenue right now. Trial/incomplete rows carry
-    // no collected revenue yet, so they're excluded from MRR/ARR.
-    private const RECURRING_STATUSES = ['active'];
 
     private const DATE_PRESETS = [
         'today', 'yesterday', 'last_7_days', 'last_30_days',
@@ -95,6 +92,10 @@ class RevenueController extends Controller
     public function export(Request $request)
     {
         [$filteredQuery] = $this->filteredTransactions($request);
+
+        app(AdminAuditLogger::class)->log('revenue.export', 'RevenueExport', null, [
+            'filters' => $request->except(['_token']),
+        ]);
 
         $filename = 'revenue-transactions-'.now()->format('Y-m-d-His').'.csv';
 
@@ -182,7 +183,7 @@ class RevenueController extends Controller
         // synthetic "no payment" one — is appended on top, so a value added
         // to the enum later (or found unexpectedly) still shows up without
         // a code change.
-        $canonicalStatuses = ['pending', 'succeeded', 'failed', 'refunded'];
+        $canonicalStatuses = ['pending', 'succeeded', 'failed', 'partially_refunded', 'refunded'];
 
         $paymentStatuses = $baseQuery()
             ->selectRaw("{$paymentStatus} as status", [self::NO_PAYMENT_STATUS])
@@ -324,11 +325,12 @@ class RevenueController extends Controller
      */
     private function summaryMetrics(CarbonImmutable $start, CarbonImmutable $end): array
     {
-        $paidWindow = fn () => Payment::query()
-            ->where('status', 'succeeded')
-            ->whereBetween('paid_at', [$start, $end]);
-
-        $totalRevenueMinor = (int) $paidWindow()->sum('amount');
+        // Net of refunds: fully refunded payments drop out, partially
+        // refunded ones count only what was kept.
+        $totalRevenueMinor = (int) Payment::query()
+            ->collected()
+            ->whereBetween('paid_at', [$start, $end])
+            ->sum(DB::raw(Payment::NET_AMOUNT_SQL));
 
         $paymentCounts = Payment::query()
             ->whereBetween(DB::raw('COALESCE(paid_at, created_at)'), [$start, $end])
@@ -336,35 +338,20 @@ class RevenueController extends Controller
             ->groupBy('status')
             ->pluck('total', 'status');
 
-        // MRR: only currently-active (paid, non-trial) subscriptions count as
-        // recurring revenue. Yearly plans are normalized to a monthly figure
-        // so they're comparable with monthly ones; trial/incomplete/expired/
-        // cancelled rows contribute $0 since no recurring money is being
-        // collected for them right now.
-        $activeSubscriptions = UserSubscription::query()
-            ->whereIn('status', self::RECURRING_STATUSES)
-            ->select(['price', 'billing_cycle'])
-            ->get();
-
-        $mrr = $activeSubscriptions->sum(function (UserSubscription $subscription) {
-            $price = (float) $subscription->price;
-
-            return $subscription->billing_cycle === 'yearly' ? $price / 12 : $price;
-        });
-
-        $arr = $mrr * 12;
-
-        $activeCount = $activeSubscriptions->count();
+        // MRR / ARR / active count: one shared calculation (see
+        // SubscriptionMetrics) so this page and the Plans page always agree.
+        $recurring = app(SubscriptionMetrics::class)->recurringRevenue();
 
         return [
             'total_revenue' => $totalRevenueMinor / 100,
-            'mrr' => round($mrr, 2),
-            'arr' => round($arr, 2),
-            'active_subscriptions' => $activeCount,
+            'mrr' => $recurring['mrr'],
+            'arr' => $recurring['arr'],
+            'active_subscriptions' => $recurring['active_count'],
             'payments' => [
                 'succeeded' => (int) ($paymentCounts['succeeded'] ?? 0),
                 'pending' => (int) ($paymentCounts['pending'] ?? 0),
                 'failed' => (int) ($paymentCounts['failed'] ?? 0),
+                'partially_refunded' => (int) ($paymentCounts['partially_refunded'] ?? 0),
                 'refunded' => (int) ($paymentCounts['refunded'] ?? 0),
             ],
         ];
@@ -386,9 +373,9 @@ class RevenueController extends Controller
         };
 
         $rows = Payment::query()
-            ->where('status', 'succeeded')
+            ->collected()
             ->whereBetween('paid_at', [$start, $end])
-            ->selectRaw('DATE_FORMAT(paid_at, ?) as bucket, SUM(amount) as total', [$sqlFormat])
+            ->selectRaw('DATE_FORMAT(paid_at, ?) as bucket, SUM('.Payment::NET_AMOUNT_SQL.') as total', [$sqlFormat])
             ->groupBy('bucket')
             ->pluck('total', 'bucket');
 

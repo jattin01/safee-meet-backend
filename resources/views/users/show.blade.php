@@ -71,6 +71,37 @@
                 </svg> <span class="align-middle">{{ $user->created_at?->format('d F, Y') ?? '—' }}</span></li>
         </ul>
 
+        <!-- Contact: phone + email on their own line -->
+        <ul class="mb-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-gray-500 dark:text-dark-500 text-14">
+            <li>
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="phone" class="lucide lucide-phone inline-block ltr:mr-1 rtl:ml-1 size-4">
+                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                </svg>
+                @if($user->phone)
+                    <a href="tel:{{ $user->phone }}" class="align-middle hover:text-primary-500">{{ $user->phone }}</a>
+                    @if($user->phone_verified_at)
+                        <span class="align-middle text-[11px] font-semibold text-emerald-400">Verified</span>
+                    @endif
+                @else
+                    <span class="align-middle">No phone</span>
+                @endif
+            </li>
+            <li>
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="mail" class="lucide lucide-mail inline-block ltr:mr-1 rtl:ml-1 size-4">
+                    <rect width="20" height="16" x="2" y="4" rx="2"></rect>
+                    <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path>
+                </svg>
+                @if($user->email)
+                    <a href="mailto:{{ $user->email }}" class="align-middle break-all hover:text-primary-500">{{ $user->email }}</a>
+                    @if($user->email_verified_at)
+                        <span class="align-middle text-[11px] font-semibold text-emerald-400">Verified</span>
+                    @endif
+                @else
+                    <span class="align-middle">No email</span>
+                @endif
+            </li>
+        </ul>
+
         <div class="flex items-center gap-3 justify-center mt-3">
 
   <!-- Verification Level -->
@@ -81,7 +112,13 @@
 
   <!-- Plan -->
   <span class="flex items-center gap-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-[12px] font-semibold px-4 py-1.5 rounded-full">
-    {{ $subscription->plan_label ?? $user->plan_label }}
+    @if($subscription && in_array($subscription->status, ['trial', 'active'], true))
+      {{ $subscription->plan_label }}{{ $subscription->status === 'trial' ? ' · Trial' : '' }}
+    @elseif($subscription)
+      {{ $subscription->plan_label }} · {{ $subscription->status_label }}
+    @else
+      No plan
+    @endif
   </span>
 
   <!-- Verification Documents -->

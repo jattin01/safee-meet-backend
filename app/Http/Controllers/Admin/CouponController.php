@@ -7,6 +7,7 @@ use App\Http\Requests\Admin\StoreCouponRequest;
 use App\Http\Requests\Admin\UpdateCouponRequest;
 use App\Models\Coupon;
 use App\Models\SubscriptionPlan;
+use App\Services\AdminAuditLogger;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -65,6 +66,8 @@ class CouponController extends Controller
             'created_by' => $request->user('admin')?->id,
         ]);
 
+        $this->audit()->log('coupon.created', $coupon, null, $this->auditSnapshot($coupon->refresh()));
+
         return response()->json([
             'message' => 'Coupon created successfully.',
             'data' => $this->serialize($coupon),
@@ -74,6 +77,7 @@ class CouponController extends Controller
     public function update(UpdateCouponRequest $request, Coupon $coupon): JsonResponse
     {
         $validated = $request->validated();
+        $before = $this->auditSnapshot($coupon);
 
         DB::transaction(function () use ($validated, $coupon): void {
             $coupon->update([
@@ -91,9 +95,15 @@ class CouponController extends Controller
             ]);
         });
 
+        [$old, $new] = $this->audit()->diff($before, $this->auditSnapshot($coupon->refresh()));
+
+        if ($new) {
+            $this->audit()->log('coupon.updated', $coupon, $old, $new);
+        }
+
         return response()->json([
             'message' => 'Coupon updated successfully.',
-            'data' => $this->serialize($coupon->refresh()),
+            'data' => $this->serialize($coupon),
         ]);
     }
 
@@ -103,7 +113,17 @@ class CouponController extends Controller
             'status' => ['required', Rule::in(['active', 'inactive'])],
         ]);
 
+        $wasActive = (bool) $coupon->is_active;
         $coupon->update(['is_active' => $validated['status'] === 'active']);
+
+        if ($wasActive !== (bool) $coupon->is_active) {
+            $this->audit()->log(
+                $coupon->is_active ? 'coupon.activated' : 'coupon.deactivated',
+                $coupon,
+                ['is_active' => $wasActive],
+                ['is_active' => (bool) $coupon->is_active],
+            );
+        }
 
         return response()->json([
             'message' => 'Coupon status updated successfully.',
@@ -121,9 +141,34 @@ class CouponController extends Controller
             ], 422);
         }
 
+        $snapshot = $this->auditSnapshot($coupon);
         $coupon->delete();
 
+        $this->audit()->log('coupon.deleted', $coupon, $snapshot, null);
+
         return response()->json(['message' => 'Coupon deleted successfully.']);
+    }
+
+    private function audit(): AdminAuditLogger
+    {
+        return app(AdminAuditLogger::class);
+    }
+
+    private function auditSnapshot(Coupon $coupon): array
+    {
+        return [
+            'code' => $coupon->code,
+            'description' => $coupon->description,
+            'discount_type' => $coupon->discount_type,
+            'discount_value' => (string) $coupon->discount_value,
+            'plan_id' => $coupon->plan_id,
+            'billing_cycle' => $coupon->billing_cycle,
+            'max_redemptions' => $coupon->max_redemptions,
+            'max_redemptions_per_user' => $coupon->max_redemptions_per_user,
+            'starts_at' => $coupon->starts_at?->toDateTimeString(),
+            'expires_at' => $coupon->expires_at?->toDateTimeString(),
+            'is_active' => (bool) $coupon->is_active,
+        ];
     }
 
     private function validateListRequest(Request $request): array

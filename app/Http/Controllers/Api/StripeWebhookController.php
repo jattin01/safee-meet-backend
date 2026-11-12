@@ -93,6 +93,11 @@ class StripeWebhookController extends Controller
             $this->handleSubscriptionDeleted($event);
 
             return response()->json(['message' => 'Webhook processed successfully'], 200);
+
+        case 'charge.refunded':
+            $this->handleChargeRefunded($event);
+
+            return response()->json(['message' => 'Webhook processed successfully'], 200);
     }
 
     $paymentIntent = $event->data->object;
@@ -241,14 +246,28 @@ class StripeWebhookController extends Controller
         }
 
         // Newer Stripe API versions no longer put payment_intent on the
-        // invoice; only set it when present so the id stored at checkout
-        // isn't wiped out.
+        // invoice, so it is looked up via the invoice's payments. It is
+        // needed later to match a refund (charge.refunded) to this row. Only
+        // set it when found so an id stored earlier isn't wiped out.
+        $paymentIntentId = $invoice->payment_intent ?? null;
+
+        if (! $paymentIntentId) {
+            try {
+                $paymentIntentId = app(StripeService::class)->paymentIntentIdForInvoice($invoice->id);
+            } catch (\Throwable $e) {
+                Log::warning('Could not resolve PaymentIntent for invoice', [
+                    'invoice_id' => $invoice->id,
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        }
+
         $payment = Payment::updateOrCreate(
             ['stripe_invoice_id' => $invoice->id],
             array_filter([
                 'user_id' => $subscription->user_id,
                 'subscription_id' => $subscription->id,
-                'stripe_payment_intent_id' => $invoice->payment_intent ?? null,
+                'stripe_payment_intent_id' => $paymentIntentId,
                 'amount' => $invoice->amount_paid,
                 'currency' => $invoice->currency,
                 'status' => 'succeeded',
@@ -279,7 +298,9 @@ class StripeWebhookController extends Controller
         $metadata = $stripeSubscription->metadata;
 
         $user = User::find($metadata['user_id'] ?? null);
-        $plan = SubscriptionPlan::find($metadata['plan_id'] ?? null);
+        // withTrashed: if the plan was deleted while this checkout was still
+        // being paid, the user still gets the plan they paid for.
+        $plan = SubscriptionPlan::withTrashed()->find($metadata['plan_id'] ?? null);
 
         if (! $user || ! $plan) {
             Log::error('Paid Stripe subscription has no matching user/plan', [
@@ -369,6 +390,130 @@ class StripeWebhookController extends Controller
                 'status' => 'failed',
             ], fn ($value) => $value !== null),
         );
+    }
+
+    /**
+     * charge.refunded fires for every refund on a charge, full or partial,
+     * and carries the running total (amount_refunded). Values are set from
+     * that total, never added to, so a repeated delivery changes nothing.
+     *
+     * Scenarios:
+     * 1. Partial refund: payment -> partially_refunded. Access unchanged;
+     *    only the refunded part leaves revenue.
+     * 2. Full refund of the payment for the CURRENT period of a running
+     *    plan: payment -> refunded, plan ends now (cancelled), Stripe
+     *    subscription cancelled so it does not renew. Access stops.
+     * 3. Full refund of an OLDER payment (a past period, or a plan that was
+     *    already replaced / cancelled / expired): payment -> refunded only.
+     *    The current plan is untouched.
+     * 4. Charge not matching any payment row: logged and ignored.
+     */
+    private function handleChargeRefunded($event): void
+    {
+        $charge = $event->data->object;
+        $payment = $this->paymentForCharge($charge);
+
+        if (! $payment) {
+            Log::warning('Refund received for an unknown charge', [
+                'charge_id' => $charge->id ?? null,
+                'payment_intent_id' => $charge->payment_intent ?? null,
+            ]);
+
+            return;
+        }
+
+        $refunded = min((int) ($charge->amount_refunded ?? 0), (int) $payment->amount);
+        $isFullRefund = (bool) ($charge->refunded ?? false) || $refunded >= (int) $payment->amount;
+
+        $payment->update(array_filter([
+            'amount_refunded' => $refunded,
+            'status' => $isFullRefund ? 'refunded' : 'partially_refunded',
+            'refunded_at' => now(),
+            // Backfill so the next lookup for this charge is a direct hit.
+            'stripe_payment_intent_id' => $payment->stripe_payment_intent_id ?: ($charge->payment_intent ?? null),
+        ], fn ($value) => $value !== null));
+
+        Log::info('Payment refunded', [
+            'payment_id' => $payment->id,
+            'amount_refunded' => $refunded,
+            'full' => $isFullRefund,
+        ]);
+
+        // Scenario 1: partial refund keeps the plan running.
+        if (! $isFullRefund) {
+            return;
+        }
+
+        $subscription = $payment->subscription;
+
+        // Scenario 3: the plan this paid for is no longer running.
+        if (! $subscription || ! in_array($subscription->status, ['trial', 'active'], true)) {
+            return;
+        }
+
+        // Scenario 3: an older period was refunded; a later payment covers
+        // the current one.
+        $latestPayment = Payment::where('subscription_id', $subscription->id)
+            ->whereIn('status', [...Payment::COLLECTED_STATUSES, 'refunded'])
+            ->orderByDesc('paid_at')
+            ->orderByDesc('id')
+            ->first();
+
+        if ($latestPayment && $latestPayment->id !== $payment->id) {
+            return;
+        }
+
+        // Scenario 2: the current period was refunded in full.
+        $subscription->update(['status' => 'cancelled', 'cancelled_at' => now()]);
+        $this->syncUserStatus($subscription, 'cancelled');
+
+        if ($subscription->stripe_subscription_id) {
+            try {
+                // Its customer.subscription.deleted event then finds the row
+                // already cancelled and does nothing.
+                app(StripeService::class)->cancelSubscription($subscription->stripe_subscription_id);
+            } catch (\Throwable $e) {
+                Log::warning('Could not cancel Stripe subscription after full refund', [
+                    'stripe_subscription_id' => $subscription->stripe_subscription_id,
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Finds the payments row a Stripe Charge belongs to: by PaymentIntent
+     * first, then via the invoice that PaymentIntent paid (older rows were
+     * stored without a PaymentIntent id).
+     */
+    private function paymentForCharge($charge): ?Payment
+    {
+        $paymentIntentId = $charge->payment_intent ?? null;
+
+        if (! $paymentIntentId) {
+            return null;
+        }
+
+        $paymentIntentId = is_string($paymentIntentId) ? $paymentIntentId : $paymentIntentId->id;
+
+        $payment = Payment::where('stripe_payment_intent_id', $paymentIntentId)->first();
+
+        if ($payment) {
+            return $payment;
+        }
+
+        try {
+            $invoiceId = app(StripeService::class)->invoiceIdForPaymentIntent($paymentIntentId);
+        } catch (\Throwable $e) {
+            Log::warning('Could not resolve invoice for refunded charge', [
+                'payment_intent_id' => $paymentIntentId,
+                'message' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+
+        return $invoiceId ? Payment::where('stripe_invoice_id', $invoiceId)->first() : null;
     }
 
     private function handleSubscriptionDeleted($event): void

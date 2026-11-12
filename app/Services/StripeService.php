@@ -100,6 +100,44 @@ class StripeService
         return $this->client->subscriptions->retrieve($stripeSubscriptionId);
     }
 
+    /**
+     * The invoice a PaymentIntent paid. Current Stripe API versions no longer
+     * put the invoice on the Charge/PaymentIntent; the link lives on the
+     * InvoicePayment object instead.
+     */
+    public function invoiceIdForPaymentIntent(string $paymentIntentId): ?string
+    {
+        $payments = $this->client->invoicePayments->all([
+            'payment' => ['type' => 'payment_intent', 'payment_intent' => $paymentIntentId],
+            'limit' => 1,
+        ]);
+
+        $invoice = $payments->data[0]->invoice ?? null;
+
+        return is_string($invoice) ? $invoice : $invoice?->id;
+    }
+
+    /**
+     * The PaymentIntent that paid an invoice (the reverse of the above).
+     * Stored on the payments row so a later refund can be matched to it.
+     */
+    public function paymentIntentIdForInvoice(string $invoiceId): ?string
+    {
+        $payments = $this->client->invoicePayments->all(['invoice' => $invoiceId, 'limit' => 10]);
+
+        foreach ($payments->data as $invoicePayment) {
+            if (($invoicePayment->status ?? null) !== 'paid' || ($invoicePayment->payment->type ?? null) !== 'payment_intent') {
+                continue;
+            }
+
+            $paymentIntent = $invoicePayment->payment->payment_intent;
+
+            return is_string($paymentIntent) ? $paymentIntent : $paymentIntent?->id;
+        }
+
+        return null;
+    }
+
     public function cancelSubscription(string $stripeSubscriptionId): StripeSubscription
     {
         return $this->client->subscriptions->cancel($stripeSubscriptionId);

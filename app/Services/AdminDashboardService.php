@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Incident;
 use App\Models\Meeting;
 use App\Models\Payment;
+use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Models\UserSubscription;
@@ -113,8 +114,12 @@ class AdminDashboardService
     {
         $palette = ['#0ab39c', '#299cdb', '#f7b84b', '#f06548', '#7367f0', '#20c997'];
 
-        $countsByPlan = UserSubscription::query()
-            ->selectRaw('plan_id, COUNT(*) as total')
+        // Users currently on each plan (running trial/active subscription).
+        // Read from `subscriptions`, not snapshots: older accounts have no
+        // snapshot row, and old expired/cancelled snapshots must not count.
+        $countsByPlan = Subscription::query()
+            ->whereIn('status', ['trial', 'active'])
+            ->selectRaw('plan_id, COUNT(DISTINCT user_id) as total')
             ->groupBy('plan_id')
             ->pluck('total', 'plan_id');
 
@@ -122,14 +127,14 @@ class AdminDashboardService
 
         $revenueByPlan = Payment::query()
             ->join('subscriptions', 'subscriptions.id', '=', 'payments.subscription_id')
-            ->join('user_subscriptions', 'user_subscriptions.subscription_id', '=', 'subscriptions.subscription_id')
-            ->where('payments.status', 'succeeded')
-            ->selectRaw('user_subscriptions.plan_id, SUM(payments.amount) as total')
-            ->groupBy('user_subscriptions.plan_id')
+            ->collected()
+            ->selectRaw('subscriptions.plan_id, SUM('.Payment::NET_AMOUNT_SQL.') as total')
+            ->groupBy('subscriptions.plan_id')
             ->pluck('total', 'plan_id');
 
+        // Active plans, plus deactivated ones that still have subscribers.
         return SubscriptionPlan::query()
-            ->active()
+            ->where(fn ($query) => $query->where('is_active', true)->orWhereIn('id', $countsByPlan->keys()))
             ->orderBy('sort_order')
             ->get()
             ->map(function (SubscriptionPlan $plan, int $index) use ($countsByPlan, $totalSubscriptions, $revenueByPlan, $palette) {
@@ -218,13 +223,14 @@ class AdminDashboardService
                 ->groupBy('plan_id')
                 ->map(fn ($rows) => $rows->pluck('total', 'bucket'));
 
+            // Plan via subscriptions.plan_id so payments of older accounts
+            // (no snapshot row) are not dropped.
             $revenue = Payment::query()
                 ->join('subscriptions', 'subscriptions.id', '=', 'payments.subscription_id')
-                ->join('user_subscriptions', 'user_subscriptions.subscription_id', '=', 'subscriptions.subscription_id')
-                ->where('payments.status', 'succeeded')
+                ->collected()
                 ->whereBetween('payments.paid_at', [$start, $end])
-                ->selectRaw('user_subscriptions.plan_id, DATE_FORMAT(payments.paid_at, ?) as bucket, SUM(payments.amount) as total', [$sqlFormat])
-                ->groupBy('user_subscriptions.plan_id', 'bucket')
+                ->selectRaw('subscriptions.plan_id, DATE_FORMAT(payments.paid_at, ?) as bucket, SUM('.Payment::NET_AMOUNT_SQL.') as total', [$sqlFormat])
+                ->groupBy('subscriptions.plan_id', 'bucket')
                 ->get()
                 ->groupBy('plan_id')
                 ->map(fn ($rows) => $rows->pluck('total', 'bucket'));
@@ -325,9 +331,9 @@ class AdminDashboardService
             ->pluck('total', 'bucket');
 
         $revenueByBucket = Payment::query()
-            ->where('status', 'succeeded')
+            ->collected()
             ->whereBetween('paid_at', [$start, $end])
-            ->selectRaw("DATE_FORMAT(paid_at, ?) as bucket, SUM(amount) as total", [$sqlFormat])
+            ->selectRaw('DATE_FORMAT(paid_at, ?) as bucket, SUM('.Payment::NET_AMOUNT_SQL.') as total', [$sqlFormat])
             ->groupBy('bucket')
             ->pluck('total', 'bucket');
 

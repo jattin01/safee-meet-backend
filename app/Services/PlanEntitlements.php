@@ -45,14 +45,16 @@ class PlanEntitlements
     }
 
     /**
-     * Is the user's subscription currently usable? Trial and active count;
-     * expired/cancelled/not_subscribed do not — those gate off search/chat
-     * until the user pays.
+     * Is the user's subscription currently usable? Only a real trial/active
+     * subscription counts — its snapshot, or the subscriptions row itself for
+     * older accounts created before snapshots existed. users.subscription_status
+     * is a display mirror and is never trusted for access, so a user with no
+     * plan ('none'), or an expired/cancelled one, is gated off search/chat.
      */
     public function subscriptionActive(User $user): bool
     {
         return $this->activeUserSubscription($user) !== null
-            || in_array($user->subscription_status, ['trial', 'active'], true);
+            || $user->activeSubscription()->exists();
     }
 
     public function activeUserSubscription(User $user): ?UserSubscription

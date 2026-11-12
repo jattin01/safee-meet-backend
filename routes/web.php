@@ -54,7 +54,6 @@ Route::middleware('auth:admin')->group(function () {
     Route::post('/logout', [LoginController::class, 'logout'])->name('logout');
     Route::get('/users', [UserController::class, 'index'])->name('users');
     Route::get('/users/data', [UserController::class, 'data'])->name('users.data');
-    Route::get('/users/export', [UserController::class, 'export'])->name('users.export');
     Route::get('/admins', [AdminController::class, 'index'])->name('admins.index');
     Route::get('/admins/data', [AdminController::class, 'data'])->name('admins.data');
     Route::post('/admins', [AdminController::class, 'store'])->name('admins.store');
@@ -70,13 +69,25 @@ Route::middleware('auth:admin')->group(function () {
     Route::post('/verification/{verification}/reject', [VerificationController::class, 'reject'])
         ->name('verification.reject');
     Route::get('/orders', [OrderController::class, 'index'])->name('orders');
-    Route::match(['get', 'post'], '/subscription', [SubscriptionsController::class, 'index'])->name('subscription');
+    // Billing & money: plan prices/features, revenue and data exports.
+    // Restricted to the admin and super_admin roles (PDF ADM-011 / ADM-018);
+    // an admin account with no role, or any other role, gets 403.
+    Route::middleware('role:admin,super_admin')->group(function (): void {
+        Route::match(['get', 'post'], '/subscription', [SubscriptionsController::class, 'index'])->name('subscription');
 
-    Route::get('/features', [FeatureController::class, 'index'])->name('features.index');
-    Route::post('/features', [FeatureController::class, 'store'])->name('features.store');
-    Route::post('/features/matrix', [FeatureController::class, 'saveMatrix'])->name('features.matrix');
-    Route::put('/features/{feature}', [FeatureController::class, 'update'])->name('features.update');
-    Route::delete('/features/{feature}', [FeatureController::class, 'destroy'])->name('features.destroy');
+        Route::get('/features', [FeatureController::class, 'index'])->name('features.index');
+        Route::post('/features', [FeatureController::class, 'store'])->name('features.store');
+        Route::post('/features/matrix', [FeatureController::class, 'saveMatrix'])->name('features.matrix');
+        Route::put('/features/{feature}', [FeatureController::class, 'update'])->name('features.update');
+        Route::delete('/features/{feature}', [FeatureController::class, 'destroy'])->name('features.destroy');
+
+        Route::get('/revenue', [RevenueController::class, 'index'])->name('revenue');
+        Route::get('/revenue/usernames', [RevenueController::class, 'usernames'])->name('revenue.usernamefilter');
+        Route::get('/revenue/export', [RevenueController::class, 'export'])->name('revenue.export');
+        Route::get('/revenue/trend', [RevenueController::class, 'trend'])->name('revenue.trend');
+
+        Route::get('/users/export', [UserController::class, 'export'])->name('users.export');
+    });
 
     Route::middleware('role:admin,super_admin')->group(function (): void {
         Route::get('/job-titles', [JobTitleController::class, 'index'])->name('job-titles.index');
@@ -106,10 +117,6 @@ Route::middleware('auth:admin')->group(function () {
     Route::get('/meetings', [MeetingController::class, 'index'])->name('meetings');
     Route::get('/meetings/statuses', [MeetingController::class, 'statuses'])->name('meetings.statuses');
     Route::get('/meetings/usernames', [MeetingController::class, 'usernames'])->name('meetings.usernamefilter');
-    Route::get('/revenue', [RevenueController::class, 'index'])->name('revenue');
-    Route::get('/revenue/usernames', [RevenueController::class, 'usernames'])->name('revenue.usernamefilter');
-    Route::get('/revenue/export', [RevenueController::class, 'export'])->name('revenue.export');
-    Route::get('/revenue/trend', [RevenueController::class, 'trend'])->name('revenue.trend');
     Route::get('/terms', [TermsController::class, 'index'])->name('terms.index');
     Route::get('/users/{id}', [UserController::class, 'show'])->name('users.show');
     Route::post('/users/{id}/job-title', [UserController::class, 'updateJobTitle'])->name('users.job-title.update');

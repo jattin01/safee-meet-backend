@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AdminAuditLog;
 use App\Models\Feature;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
-use App\Models\User;
+use App\Services\AdminAuditLogger;
 use App\Services\StripeService;
+use App\Services\SubscriptionMetrics;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -18,6 +20,35 @@ class SubscriptionsController extends Controller
         if ($request->isMethod('post')) {
 
             $action = $request->input('action', 'store');
+
+            if ($action === 'toggle') {
+                $plan = SubscriptionPlan::findOrFail($request->input('id'));
+                $wasActive = (bool) $plan->is_active;
+
+                // Deactivating only stops NEW purchases: the plan disappears
+                // from the app's plans/comparison lists and subscribe()
+                // rejects it. Existing subscribers keep their plan and keep
+                // renewing on their current Stripe price.
+                $plan->update(['is_active' => ! $wasActive]);
+
+                $this->audit()->log(
+                    $wasActive ? 'plan.deactivated' : 'plan.activated',
+                    $plan,
+                    ['is_active' => $wasActive],
+                    ['is_active' => ! $wasActive],
+                );
+
+                return redirect()->route('subscription')->with('success', $wasActive
+                    ? "Plan \"{$plan->name}\" deactivated. It is hidden from new users; existing subscribers are not affected."
+                    : "Plan \"{$plan->name}\" activated. It is available to new users again.");
+            }
+
+            if ($action === 'move') {
+                return $this->movePlan(
+                    SubscriptionPlan::findOrFail($request->input('id')),
+                    $request->input('direction') === 'up' ? 'up' : 'down',
+                );
+            }
 
             if ($action === 'delete') {
                 $plan = SubscriptionPlan::findOrFail($request->input('id'));
@@ -38,9 +69,16 @@ class SubscriptionsController extends Controller
                         ->with('error', 'Plan not deleted — archiving its Stripe prices failed: '.$e->getMessage());
                 }
 
+                $snapshot = $this->auditSnapshot($plan);
+
+                // Soft delete: gone from the admin list and the app, but its
+                // name stays on subscription history, payments and reports.
+                $plan->update(['is_active' => false]);
                 $plan->delete();
 
-                return redirect()->route('subscription')->with('success', 'Plan deleted successfully.');
+                $this->audit()->log('plan.deleted', $plan, $snapshot, null);
+
+                return redirect()->route('subscription')->with('success', 'Plan deleted. Past subscriptions and reports still show its name.');
             }
 
             $featuresRule = [
@@ -56,44 +94,39 @@ class SubscriptionsController extends Controller
             if ($action === 'update') {
                 $validated = $request->validate([
                     'id' => ['required', 'integer', 'exists:subscription_plans,id'],
-                    'name' => ['required', 'string', 'max:50'],
-                    'account_type' => ['nullable', 'in:normal,employer,both'],
-                    'monthly_price' => ['required', 'numeric', 'min:0'],
-                    'monthly_original_price' => ['nullable', 'numeric', 'gte:monthly_price'],
-                    'yearly_price' => ['required', 'numeric', 'min:0'],
-                    'yearly_original_price' => ['nullable', 'numeric', 'gte:yearly_price'],
-                    'trial_days' => ['nullable', 'integer', 'min:0'],
-                    'features' => $featuresRule,
-                ], [
-                    'features.required' => 'Add at least one feature.',
-                    'monthly_original_price.gte' => 'The flat (MRP) monthly price must be greater than or equal to the discounted price.',
-                    'yearly_original_price.gte' => 'The flat (MRP) yearly price must be greater than or equal to the discounted price.',
-                ]);
+                    ...$this->planRules($featuresRule),
+                ], $this->planMessages());
 
                 $plan = SubscriptionPlan::findOrFail($validated['id']);
+                $before = $this->auditSnapshot($plan);
 
                 $plan->update([
                     'name' => $validated['name'],
-                    // Keep the slug in sync with the name. Excluding the row's
-                    // own id means an unchanged name keeps the same slug, and a
-                    // rename updates it (staying table-unique).
-                    'slug' => $this->uniqueSlug($validated['name'], (int) $validated['id']),
+                    // The slug is NOT changed on rename: the app sends it to
+                    // subscribe, so changing it would break apps that cached
+                    // the old one. It is set once, when the plan is created.
                     // Who this plan is shown to; 'both' (the default) keeps it
                     // visible to normal and employer accounts alike.
                     'account_type' => $validated['account_type'] ?? 'both',
                     'monthly_price' => $validated['monthly_price'],
                     // Blank = no strikethrough MRP shown for this cycle.
-                    'monthly_original_price' => $validated['monthly_original_price'] ?: null,
+                    'monthly_original_price' => ($validated['monthly_original_price'] ?? null) ?: null,
                     'yearly_price' => $validated['yearly_price'],
-                    'yearly_original_price' => $validated['yearly_original_price'] ?: null,
+                    'yearly_original_price' => ($validated['yearly_original_price'] ?? null) ?: null,
                     // Blank / 0 = no free trial on this plan.
-                    'trial_days' => $validated['trial_days'] ?: null,
+                    'trial_days' => ($validated['trial_days'] ?? null) ?: null,
                     'features' => $this->splitFeatures($validated['features']),
                 ]);
 
                 // Keep the comparison-table entitlements (plan_feature pivot)
                 // in sync with whatever was checked/typed in the feature grid.
                 $this->syncComparisonFeatures($plan, $request->input('plan_features', []));
+
+                [$old, $new] = $this->audit()->diff($before, $this->auditSnapshot($plan->refresh()));
+
+                if ($new) {
+                    $this->audit()->log('plan.updated', $plan, $old, $new);
+                }
 
                 if ($error = $this->syncStripePrices($plan)) {
                     return redirect()->route('subscription')->with('error', $error);
@@ -102,20 +135,7 @@ class SubscriptionsController extends Controller
                 return redirect()->route('subscription')->with('success', 'Plan updated successfully.');
             }
 
-            $validated = $request->validate([
-                'name' => ['required', 'string', 'max:50'],
-                'account_type' => ['nullable', 'in:normal,employer,both'],
-                'monthly_price' => ['required', 'numeric', 'min:0'],
-                'monthly_original_price' => ['nullable', 'numeric', 'gte:monthly_price'],
-                'yearly_price' => ['required', 'numeric', 'min:0'],
-                'yearly_original_price' => ['nullable', 'numeric', 'gte:yearly_price'],
-                'trial_days' => ['nullable', 'integer', 'min:0'],
-                'features' => $featuresRule,
-            ], [
-                'features.required' => 'Add at least one feature.',
-                'monthly_original_price.gte' => 'The flat (MRP) monthly price must be greater than or equal to the discounted price.',
-                'yearly_original_price.gte' => 'The flat (MRP) yearly price must be greater than or equal to the discounted price.',
-            ]);
+            $validated = $request->validate($this->planRules($featuresRule), $this->planMessages());
 
             $plan = SubscriptionPlan::create([
                 'name' => $validated['name'],
@@ -125,10 +145,10 @@ class SubscriptionsController extends Controller
                 'account_type' => $validated['account_type'] ?? 'both',
                 'monthly_price' => $validated['monthly_price'],
                 // Blank = no strikethrough MRP shown for this cycle.
-                'monthly_original_price' => $validated['monthly_original_price'] ?: null,
+                'monthly_original_price' => ($validated['monthly_original_price'] ?? null) ?: null,
                 'yearly_price' => $validated['yearly_price'],
-                'yearly_original_price' => $validated['yearly_original_price'] ?: null,
-                'trial_days' => $validated['trial_days'] ?: null,
+                'yearly_original_price' => ($validated['yearly_original_price'] ?? null) ?: null,
+                'trial_days' => ($validated['trial_days'] ?? null) ?: null,
                 'features' => $this->splitFeatures($validated['features']),
                 'icon' => 'fa-crown',
                 'color' => '#ef4444',
@@ -141,6 +161,8 @@ class SubscriptionsController extends Controller
             // side-by-side comparison instead of every cell defaulting to "No".
             $this->syncComparisonFeatures($plan, $request->input('plan_features', []));
 
+            $this->audit()->log('plan.created', $plan, null, $this->auditSnapshot($plan->refresh()));
+
             if ($error = $this->syncStripePrices($plan)) {
                 return redirect()->route('subscription')->with('error', $error);
             }
@@ -150,17 +172,28 @@ class SubscriptionsController extends Controller
 
         $plans = SubscriptionPlan::orderBy('sort_order')->get();
 
-        // Real-time headcount per plan, keyed by plan_id, for the stat cards.
-        $userCountsByPlan = User::whereNotNull('plan_id')
-            ->selectRaw('plan_id, count(*) as total')
+        // Users currently ON each plan (running trial/active subscription),
+        // keyed by plan_id. users.plan_id is not used: it keeps pointing at
+        // a plan after it expires or is cancelled.
+        $userCountsByPlan = Subscription::whereIn('status', ['trial', 'active'])
+            ->selectRaw('plan_id, COUNT(DISTINCT user_id) as total')
             ->groupBy('plan_id')
             ->pluck('total', 'plan_id');
 
-        // MRR from currently active (billed) subscriptions only; trials aren't
-        // paying yet. Yearly plans are normalized to a monthly figure.
-        $mrr = Subscription::where('status', 'active')
-            ->get()
-            ->sum(fn (Subscription $sub) => $sub->billing_cycle === 'yearly' ? $sub->price / 12 : $sub->price);
+        // Recent plan changes (price, features, status, order, delete) for
+        // the change-history panel — ADM-012 / ADM-019.
+        $planHistory = AdminAuditLog::with('admin:id,name')
+            ->where('target_type', 'SubscriptionPlan')
+            ->latest('occurred_at')
+            ->limit(50)
+            ->get();
+
+        $planNames = SubscriptionPlan::withTrashed()
+            ->whereIn('id', $planHistory->pluck('target_id')->unique())
+            ->pluck('name', 'id');
+
+        // Same MRR as the Revenue page (see SubscriptionMetrics).
+        $mrr = app(SubscriptionMetrics::class)->recurringRevenue()['mrr'];
 
         // Comparison-feature catalog, grouped for the checklist on the
         // create/edit forms (same source of truth as Admin\FeatureController).
@@ -176,7 +209,109 @@ class SubscriptionsController extends Controller
             ];
         }
 
-        return view('subscription.index', compact('plans', 'userCountsByPlan', 'mrr', 'featureGroups', 'planFeatureMatrix'));
+        return view('subscription.index', compact('plans', 'userCountsByPlan', 'mrr', 'featureGroups', 'planFeatureMatrix', 'planHistory', 'planNames'));
+    }
+
+    /** Highest price an admin can set, in dollars (Stripe-safe, catches typos). */
+    private const MAX_PRICE = 99999.99;
+
+    /** Longest free trial an admin can set, in days. */
+    private const MAX_TRIAL_DAYS = 365;
+
+    /**
+     * Create/edit validation. Prices: at most 2 decimals (Stripe bills in
+     * cents, so 9.999 would be silently rounded) and capped at MAX_PRICE.
+     */
+    private function planRules(array $featuresRule): array
+    {
+        $price = ['numeric', 'decimal:0,2', 'min:0', 'max:'.self::MAX_PRICE];
+
+        return [
+            'name' => ['required', 'string', 'max:50'],
+            'account_type' => ['nullable', 'in:normal,employer,both'],
+            'monthly_price' => ['required', ...$price],
+            'monthly_original_price' => ['nullable', ...$price, 'gte:monthly_price'],
+            'yearly_price' => ['required', ...$price],
+            'yearly_original_price' => ['nullable', ...$price, 'gte:yearly_price'],
+            'trial_days' => ['nullable', 'integer', 'min:0', 'max:'.self::MAX_TRIAL_DAYS],
+            'features' => $featuresRule,
+        ];
+    }
+
+    private function planMessages(): array
+    {
+        return [
+            'features.required' => 'Add at least one feature.',
+            'monthly_original_price.gte' => 'The flat (MRP) monthly price must be greater than or equal to the discounted price.',
+            'yearly_original_price.gte' => 'The flat (MRP) yearly price must be greater than or equal to the discounted price.',
+            '*.decimal' => 'Prices can have at most 2 decimal places (e.g. 9.99).',
+        ];
+    }
+
+    /**
+     * Swaps a plan with its neighbour in the display order (the order the
+     * app's plans and comparison screens use). Orders are first renumbered
+     * 1..n so gaps or duplicates from older data can't break the swap.
+     */
+    private function movePlan(SubscriptionPlan $plan, string $direction)
+    {
+        DB::transaction(function () use ($plan, $direction) {
+            $ordered = SubscriptionPlan::orderBy('sort_order')->orderBy('id')->lockForUpdate()->get();
+
+            foreach ($ordered->values() as $position => $row) {
+                if ((int) $row->sort_order !== $position + 1) {
+                    $row->update(['sort_order' => $position + 1]);
+                }
+            }
+
+            $index = $ordered->search(fn ($row) => $row->id === $plan->id);
+            $neighbour = $ordered->get($direction === 'up' ? $index - 1 : $index + 1);
+
+            if (! $neighbour) {
+                return;
+            }
+
+            $mine = $index + 1;
+            $theirs = $direction === 'up' ? $index : $index + 2;
+
+            $plan->update(['sort_order' => $theirs]);
+            $neighbour->update(['sort_order' => $mine]);
+
+            $this->audit()->log('plan.reordered', $plan, ['sort_order' => $mine], ['sort_order' => $theirs]);
+        });
+
+        return redirect()->route('subscription')->with('success', "Plan \"{$plan->name}\" moved {$direction}.");
+    }
+
+    private function audit(): AdminAuditLogger
+    {
+        return app(AdminAuditLogger::class);
+    }
+
+    /**
+     * The plan fields an admin can change, plus its feature grid, in the
+     * shape stored on audit log rows (old_values / new_values).
+     */
+    private function auditSnapshot(SubscriptionPlan $plan): array
+    {
+        return [
+            'name' => $plan->name,
+            'slug' => $plan->slug,
+            'account_type' => $plan->account_type,
+            'monthly_price' => (string) $plan->monthly_price,
+            'monthly_original_price' => $plan->monthly_original_price !== null ? (string) $plan->monthly_original_price : null,
+            'yearly_price' => (string) $plan->yearly_price,
+            'yearly_original_price' => $plan->yearly_original_price !== null ? (string) $plan->yearly_original_price : null,
+            'trial_days' => $plan->trial_days,
+            'is_active' => (bool) $plan->is_active,
+            'features' => array_values((array) $plan->features),
+            'plan_features' => DB::table('plan_feature')
+                ->where('plan_id', $plan->id)
+                ->orderBy('feature_id')
+                ->get(['feature_id', 'included', 'value'])
+                ->map(fn ($row) => ['feature_id' => $row->feature_id, 'included' => (bool) $row->included, 'value' => $row->value])
+                ->all(),
+        ];
     }
 
     /**
@@ -246,8 +381,9 @@ class SubscriptionsController extends Controller
         $slug = $base;
         $i = 2;
 
+        // withTrashed: a deleted plan still holds its slug in the unique index.
         while (
-            SubscriptionPlan::where('slug', $slug)
+            SubscriptionPlan::withTrashed()->where('slug', $slug)
                 ->when($ignoreId, fn ($query) => $query->where('id', '!=', $ignoreId))
                 ->exists()
         ) {

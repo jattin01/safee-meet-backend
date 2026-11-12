@@ -96,7 +96,7 @@
                 <span style="color:#6b7280; font-size:16px;">/</span>
                 <span style="color:#ef4444;">{{ number_format($summary['payments']['failed']) }}</span>
             </div>
-            <div style="font-size:11px; color:#6b7280;">Pending / Failed in selected period{{ $summary['payments']['refunded'] > 0 ? ' · '.$summary['payments']['refunded'].' refunded' : '' }}</div>
+            <div style="font-size:11px; color:#6b7280;">Pending / Failed in selected period{{ $summary['payments']['refunded'] > 0 ? ' · '.$summary['payments']['refunded'].' refunded' : '' }}{{ $summary['payments']['partially_refunded'] > 0 ? ' · '.$summary['payments']['partially_refunded'].' partially refunded' : '' }}</div>
         </div>
 
     </div>
@@ -172,6 +172,7 @@
                                     'succeeded' => 'Paid / Successful',
                                     'pending' => 'Pending',
                                     'failed' => 'Failed',
+                                    'partially_refunded' => 'Partially Refunded',
                                     'refunded' => 'Refunded',
                                     'no_payment' => 'No Payment',
                                     default => \Illuminate\Support\Str::headline($status),

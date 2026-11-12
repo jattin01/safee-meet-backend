@@ -566,7 +566,6 @@ class AuthController extends Controller
                     'phone' => $validated['phone'],
                     'phone_verified_at' => now(),
                     'safee_pin' => User::generateSafeePin(),
-                    'subscription_status' => 'trial',
                     'status' => 'active',
                     'auth_provider' => 'phone',
                 ]);

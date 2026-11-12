@@ -5,9 +5,14 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class SubscriptionPlan extends Model
 {
+    // Deleted plans are kept (deleted_at) so history and reports still show
+    // their name. Relations that point at a plan use ->withTrashed().
+    use SoftDeletes;
+
     // Included on every toArray()/toJson() (e.g. the /api/subscriptions/plans
     // response) so the app gets the "% OFF" badge without extra math.
     protected $appends = ['monthly_discount_percent', 'yearly_discount_percent'];

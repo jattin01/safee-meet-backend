@@ -114,16 +114,30 @@ class SubscriptionController extends Controller
 
     /**
      * GET /api/subscriptions/current — Profile "Current Plan" card.
+     *
+     * Always 200. With no running plan, `plan` is null and `status` says why
+     * ('none' = never subscribed, or 'expired' / 'cancelled'), so the app can
+     * show the empty state + "Choose a plan" without treating it as an error.
      */
     public function current(Request $request): JsonResponse
     {
-        $subscription = $request->user()
+        $user = $request->user();
+
+        $subscription = $user
             ->activeSubscription()
             ->with('plan.comparisonFeatures:id,slug,name,type')
             ->first();
 
         if (! $subscription) {
-            return response()->json(['message' => 'No active subscription'], 404);
+            $status = in_array($user->subscription_status, ['expired', 'cancelled'], true)
+                ? $user->subscription_status
+                : 'none';
+
+            return response()->json([
+                'status' => $status,
+                'plan' => null,
+                'message' => 'No active subscription',
+            ]);
         }
 
         $plan = $subscription->plan;

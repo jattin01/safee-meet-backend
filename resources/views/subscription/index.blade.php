@@ -273,6 +273,7 @@
                         </button>
                     </form>
                 <h2>{{ $plan['name'] }}</h2>
+                @include('subscription.partials.plan-status', ['plan' => $plan, 'isFirst' => $loop->first, 'isLast' => $loop->last])
                 <div class="mt-3 flex items-center gap-2">
                     <h4 class="text-white text-[30px] font-bold">${{ number_format($plan['monthly_price'], 2) }}</h4>
                     @if($plan['monthly_original_price'] !== null && (float) $plan['monthly_original_price'] > (float) $plan['monthly_price'])
@@ -316,6 +317,7 @@
                         </button>
                     </form>
                 <h2>{{ $plan['name'] }}</h2>
+                @include('subscription.partials.plan-status', ['plan' => $plan, 'isFirst' => $loop->first, 'isLast' => $loop->last])
                 <div class="mt-3 flex items-center gap-2">
                     <h4 class="text-white text-[30px] font-bold">${{ number_format($plan['yearly_price'], 2) }}</h4>
                     @if($plan['yearly_original_price'] !== null && (float) $plan['yearly_original_price'] > (float) $plan['yearly_price'])
@@ -350,6 +352,8 @@
             </div>
         @endforeach
     </div>
+
+    @include('subscription.partials.plan-history', ['planHistory' => $planHistory, 'planNames' => $planNames])
 
     {{-- Edit Plan Modal --}}
     <div x-show="showEditModal" x-cloak @click.self="showEditModal = false" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">

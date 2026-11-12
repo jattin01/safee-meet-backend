@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Feature;
 use App\Models\SubscriptionPlan;
+use App\Services\AdminAuditLogger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -45,11 +46,13 @@ class FeatureController extends Controller
             'description' => ['nullable', 'string', 'max:255'],
         ]);
 
-        Feature::create($validated + [
+        $feature = Feature::create($validated + [
             'slug' => $this->uniqueSlug($validated['name']),
             'sort_order' => (int) Feature::max('sort_order') + 1,
             'is_active' => true,
         ]);
+
+        $this->audit()->log('feature.created', $feature, null, $feature->only(['name', 'slug', 'type', 'group', 'description', 'is_active']));
 
         return redirect()->route('features.index')->with('success', 'Feature created successfully.');
     }
@@ -65,7 +68,15 @@ class FeatureController extends Controller
         ]);
 
         // slug stays stable (the comparison API / clients key on it).
+        $fields = ['name', 'type', 'group', 'description', 'is_active'];
+        $before = $feature->only($fields);
         $feature->update($validated);
+
+        [$old, $new] = $this->audit()->diff($before, $feature->refresh()->only($fields));
+
+        if ($new) {
+            $this->audit()->log('feature.updated', $feature, $old, $new);
+        }
 
         return redirect()->route('features.index')->with('success', 'Feature updated successfully.');
     }
@@ -73,7 +84,10 @@ class FeatureController extends Controller
     public function destroy(Feature $feature): RedirectResponse
     {
         // plan_feature rows cascade-delete via the FK.
+        $snapshot = $feature->only(['name', 'slug', 'type', 'group', 'description', 'is_active']);
         $feature->delete();
+
+        $this->audit()->log('feature.deleted', $feature, $snapshot, null);
 
         return redirect()->route('features.index')->with('success', 'Feature deleted successfully.');
     }
@@ -129,7 +143,32 @@ class FeatureController extends Controller
             }
         });
 
+        // Audit: one row per plan whose grid actually changed.
+        $after = [];
+        foreach (DB::table('plan_feature')->get() as $row) {
+            $after[$row->plan_id][$row->feature_id] = [
+                'included' => (bool) $row->included,
+                'value' => $row->value,
+            ];
+        }
+
+        foreach ($plans as $plan) {
+            $old = $existing[$plan->id] ?? [];
+            $new = $after[$plan->id] ?? [];
+            ksort($old);
+            ksort($new);
+
+            if ($old != $new) {
+                $this->audit()->log('plan.features_updated', $plan, ['plan_features' => $old], ['plan_features' => $new]);
+            }
+        }
+
         return redirect()->route('features.index')->with('success', 'Feature matrix saved.');
+    }
+
+    private function audit(): AdminAuditLogger
+    {
+        return app(AdminAuditLogger::class);
     }
 
     private function uniqueSlug(string $name): string

@@ -10,6 +10,7 @@ use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Models\UserSubscription;
+use App\Services\AdminAuditLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -87,6 +88,10 @@ class UserController extends Controller
             'date_from' => ['sometimes', 'nullable', 'date'],
             'date_to' => ['sometimes', 'nullable', 'date'],
         ]);
+
+        // The export carries users' phone numbers and emails, so every
+        // download is recorded (who, when, with which filters).
+        app(AdminAuditLogger::class)->log('users.export', 'UserExport', null, ['filters' => $validated]);
 
         $filename = 'users-'.now()->format('Y-m-d-His').'.csv';
 

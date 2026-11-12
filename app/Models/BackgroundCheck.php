@@ -51,7 +51,7 @@ class BackgroundCheck extends Model
 
     public function plan(): BelongsTo
     {
-        return $this->belongsTo(SubscriptionPlan::class);
+        return $this->belongsTo(SubscriptionPlan::class)->withTrashed();
     }
 
     public function consent(): BelongsTo

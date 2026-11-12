@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Services\SubscriptionService;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -58,11 +57,9 @@ class User extends Authenticatable
             }
         });
 
-        // Every new user starts on the 100-day free trial (single choke point
-        // for all registration paths). See SubscriptionService::startFreeTrial.
-        static::created(function (User $user): void {
-            app(SubscriptionService::class)->startFreeTrial($user);
-        });
+        // No plan is assigned at signup: new users start with
+        // subscription_status = 'none' (column default) and pick and activate
+        // a plan themselves via /subscriptions/subscribe.
     }
 
     protected $fillable = [
@@ -344,7 +341,7 @@ class User extends Authenticatable
     /** The plan catalog row for this user's current plan (read shortcut). */
     public function plan()
     {
-        return $this->belongsTo(SubscriptionPlan::class, 'plan_id');
+        return $this->belongsTo(SubscriptionPlan::class, 'plan_id')->withTrashed();
     }
 
     /** Latest still-running (trial or active) subscription, if any. */
@@ -459,9 +456,20 @@ class User extends Authenticatable
         };
     }
 
+    /**
+     * Admin-panel label for the user's plan. users.plan_id keeps pointing at
+     * the last plan after it ends, so a plan that is not running is shown
+     * with its state ("Premium · Expired") instead of looking current.
+     */
     public function getPlanLabelAttribute(): string
     {
-        return $this->plan?->name ?? 'Free';
+        if (! $this->plan) {
+            return 'No plan';
+        }
+
+        return in_array($this->subscription_status, ['trial', 'active'], true)
+            ? $this->plan->name
+            : $this->plan->name.' · '.ucfirst((string) $this->subscription_status);
     }
 
     public function getStatusLabelAttribute(): string
