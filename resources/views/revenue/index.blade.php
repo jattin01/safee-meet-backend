@@ -5,6 +5,13 @@
 @section('content')
 <div class="">
 
+    @if(session('success'))
+        <div class="mb-4 rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-400">{{ session('success') }}</div>
+    @endif
+    @if(session('error'))
+        <div class="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">{{ session('error') }}</div>
+    @endif
+
     {{-- Page Header --}}
     <div style="margin-bottom:24px; display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; justify-content:space-between;">
         <div>
@@ -508,6 +515,87 @@
     });
 
     bindPaginationLinks();
+})();
+</script>
+
+{{-- Refund dialog (STR-027). Rows are re-rendered by AJAX, so the Refund
+     buttons are picked up through event delegation. --}}
+<div id="refund-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 px-4" role="dialog" aria-modal="true" aria-labelledby="refund-title">
+    <form id="refund-form" method="POST" class="w-full max-w-md rounded-xl border border-[#2a2d3e] bg-[#11131c] p-6">
+        @csrf
+        <h3 id="refund-title" class="text-base font-semibold text-white">Refund payment</h3>
+        <p id="refund-summary" class="mt-1 text-xs text-gray-400"></p>
+
+        <label for="refund-amount" class="mt-5 block text-xs font-medium text-gray-400">Amount (USD)</label>
+        <input id="refund-amount" name="amount" type="number" step="0.01" min="0.01" required
+               class="mt-2 w-full rounded-lg border border-[#2a2d3e] bg-black px-3 py-2 text-sm text-white">
+        <p id="refund-hint" class="mt-1 text-xs text-gray-500"></p>
+
+        <label for="refund-reason" class="mt-4 block text-xs font-medium text-gray-400">Reason</label>
+        <select id="refund-reason" name="reason" required class="mt-2 w-full rounded-lg border border-[#2a2d3e] bg-black px-3 py-2 text-sm text-white">
+            <option value="requested_by_customer">Requested by customer</option>
+            <option value="duplicate">Duplicate payment</option>
+            <option value="fraudulent">Fraudulent</option>
+        </select>
+
+        <label for="refund-note" class="mt-4 block text-xs font-medium text-gray-400">Note (kept in the audit log)</label>
+        <textarea id="refund-note" name="note" rows="3" required minlength="3" maxlength="500"
+                  class="mt-2 w-full rounded-lg border border-[#2a2d3e] bg-black px-3 py-2 text-sm text-white"
+                  placeholder="e.g. Support ticket #123, user charged twice"></textarea>
+
+        <p class="mt-4 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-300">
+            A full refund of the current period cancels the user's plan and stops access now. A partial refund keeps the plan running. This cannot be undone.
+        </p>
+
+        <div class="mt-5 flex justify-end gap-3">
+            <button type="button" id="refund-cancel" class="rounded-lg border border-[#2a2d3e] px-4 py-2 text-sm text-gray-300">Cancel</button>
+            <button type="submit" id="refund-submit" class="rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-500">Refund</button>
+        </div>
+    </form>
+</div>
+
+<script>
+(function () {
+    const modal = document.getElementById('refund-modal');
+    const form = document.getElementById('refund-form');
+    const amount = document.getElementById('refund-amount');
+    const hint = document.getElementById('refund-hint');
+    const summary = document.getElementById('refund-summary');
+    const submit = document.getElementById('refund-submit');
+
+    function close() {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+
+    document.addEventListener('click', (event) => {
+        const button = event.target.closest('.js-refund');
+
+        if (!button) return;
+
+        form.action = button.dataset.url;
+        amount.max = button.dataset.refundable;
+        amount.value = button.dataset.refundable;
+        summary.textContent = button.dataset.user + ' · ' + button.dataset.plan;
+        hint.textContent = 'Up to $' + button.dataset.refundable + (button.dataset.partial === '1' ? ' (already partially refunded)' : ' (full amount)');
+        form.querySelector('[name=note]').value = '';
+        submit.disabled = false;
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        amount.focus();
+    });
+
+    document.getElementById('refund-cancel').addEventListener('click', close);
+    modal.addEventListener('click', (event) => { if (event.target === modal) close(); });
+    document.addEventListener('keydown', (event) => { if (event.key === 'Escape') close(); });
+
+    form.addEventListener('submit', (event) => {
+        if (!confirm('Refund $' + Number(amount.value).toFixed(2) + '? This cannot be undone.')) {
+            event.preventDefault();
+            return;
+        }
+        submit.disabled = true; // no double submit
+    });
 })();
 </script>
 

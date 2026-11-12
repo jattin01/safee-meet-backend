@@ -7,6 +7,7 @@ use App\Models\Payment;
 use App\Models\PaymentWebhookEvent;
 use App\Models\Subscription;
 use App\Models\User;
+use App\Services\PushNotificationService;
 use App\Services\StripeService;
 use App\Services\SubscriptionService;
 use Illuminate\Http\JsonResponse;
@@ -173,8 +174,19 @@ class StripeWebhookController extends Controller
             return;
         }
 
-        $subscription->update(['status' => 'expired']);
-        $this->syncUserStatus($subscription, 'expired');
+        // Grace policy (decided): access stops at the first failed renewal
+        // and comes back if a Stripe retry succeeds. A plan that already
+        // ended or was replaced keeps its status.
+        $wasRunning = in_array($subscription->status, ['trial', 'active'], true);
+
+        if ($wasRunning) {
+            $subscription->update(['status' => 'expired']);
+            $this->syncUserStatus($subscription, 'expired');
+        }
+
+        // Stripe retries the same invoice several times: one row per
+        // invoice, and the user is told on the first failure only.
+        $firstFailure = ! Payment::where('stripe_invoice_id', $invoice->id)->exists();
 
         Payment::updateOrCreate(
             ['stripe_invoice_id' => $invoice->id],
@@ -187,6 +199,22 @@ class StripeWebhookController extends Controller
                 'status' => 'failed',
             ], fn ($value) => $value !== null),
         );
+
+        if ($wasRunning && $firstFailure && $subscription->user) {
+            try {
+                app(PushNotificationService::class)->sendToUser(
+                    $subscription->user,
+                    'Payment failed',
+                    "We couldn't renew your {$subscription->plan?->name} plan, so your access is paused. "
+                        .'We will retry the payment automatically and restore your plan once it goes through.',
+                    ['type' => 'subscription_payment_failed', 'subscription_id' => (string) $subscription->id],
+                );
+            } catch (\Throwable $e) {
+                Log::warning('Could not send payment-failed notification', [
+                    'subscription_id' => $subscription->id, 'message' => $e->getMessage(),
+                ]);
+            }
+        }
     }
 
     private function recordFailedFirstPayment($invoice, ?string $stripeSubscriptionId): void
@@ -260,63 +288,18 @@ class StripeWebhookController extends Controller
             return;
         }
 
-        $refunded = min((int) ($charge->amount_refunded ?? 0), (int) $payment->amount);
-        $isFullRefund = (bool) ($charge->refunded ?? false) || $refunded >= (int) $payment->amount;
+        // Shared with the admin panel's refund action; values are set from
+        // Stripe's running total, so the webhook after an admin refund (or a
+        // repeated delivery) changes nothing.
+        $refunded = (int) ($charge->amount_refunded ?? 0);
+        $paymentIntentId = $charge->payment_intent ?? null;
 
-        $payment->update(array_filter([
-            'amount_refunded' => $refunded,
-            'status' => $isFullRefund ? 'refunded' : 'partially_refunded',
-            'refunded_at' => now(),
-            // Backfill so the next lookup for this charge is a direct hit.
-            'stripe_payment_intent_id' => $payment->stripe_payment_intent_id ?: ($charge->payment_intent ?? null),
-        ], fn ($value) => $value !== null));
-
-        Log::info('Payment refunded', [
-            'payment_id' => $payment->id,
-            'amount_refunded' => $refunded,
-            'full' => $isFullRefund,
-        ]);
-
-        // Scenario 1: partial refund keeps the plan running.
-        if (! $isFullRefund) {
-            return;
-        }
-
-        $subscription = $payment->subscription;
-
-        // Scenario 3: the plan this paid for is no longer running.
-        if (! $subscription || ! in_array($subscription->status, ['trial', 'active'], true)) {
-            return;
-        }
-
-        // Scenario 3: an older period was refunded; a later payment covers
-        // the current one.
-        $latestPayment = Payment::where('subscription_id', $subscription->id)
-            ->whereIn('status', [...Payment::COLLECTED_STATUSES, 'refunded'])
-            ->orderByDesc('paid_at')
-            ->orderByDesc('id')
-            ->first();
-
-        if ($latestPayment && $latestPayment->id !== $payment->id) {
-            return;
-        }
-
-        // Scenario 2: the current period was refunded in full.
-        $subscription->update(['status' => 'cancelled', 'cancelled_at' => now()]);
-        $this->syncUserStatus($subscription, 'cancelled');
-
-        if ($subscription->stripe_subscription_id) {
-            try {
-                // Its customer.subscription.deleted event then finds the row
-                // already cancelled and does nothing.
-                app(StripeService::class)->cancelSubscription($subscription->stripe_subscription_id);
-            } catch (\Throwable $e) {
-                Log::warning('Could not cancel Stripe subscription after full refund', [
-                    'stripe_subscription_id' => $subscription->stripe_subscription_id,
-                    'message' => $e->getMessage(),
-                ]);
-            }
-        }
+        app(SubscriptionService::class)->applyRefund(
+            $payment,
+            $refunded,
+            (bool) ($charge->refunded ?? false) || $refunded >= (int) $payment->amount,
+            is_string($paymentIntentId) ? $paymentIntentId : ($paymentIntentId->id ?? null),
+        );
     }
 
     /**

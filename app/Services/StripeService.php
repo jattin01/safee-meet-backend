@@ -219,6 +219,21 @@ class StripeService
         return null;
     }
 
+    /**
+     * Refunds part or all of a PaymentIntent. $reason: requested_by_customer,
+     * duplicate or fraudulent. The idempotency key makes a double-submitted
+     * admin form refund once.
+     */
+    public function refundPaymentIntent(string $paymentIntentId, int $amountCents, string $reason, array $metadata, string $idempotencyKey): \Stripe\Refund
+    {
+        return $this->client->refunds->create([
+            'payment_intent' => $paymentIntentId,
+            'amount' => $amountCents,
+            'reason' => $reason,
+            'metadata' => $metadata,
+        ], ['idempotency_key' => $idempotencyKey]);
+    }
+
     public function cancelSubscription(string $stripeSubscriptionId): StripeSubscription
     {
         return $this->client->subscriptions->cancel($stripeSubscriptionId);
@@ -268,6 +283,34 @@ class StripeService
             'limit' => 100,
             'expand' => ['data.latest_invoice'],
         ])->autoPagingIterator();
+    }
+
+    /**
+     * Cancels the customer's other billable subscriptions (active, past_due,
+     * unpaid, trialing) except $keepId. Returns the ids cancelled.
+     *
+     * @return array<int, string>
+     */
+    public function cancelOtherLiveSubscriptions(string $customerId, ?string $keepId): array
+    {
+        $cancelled = [];
+        $all = $this->client->subscriptions->all(['customer' => $customerId, 'status' => 'all', 'limit' => 100]);
+
+        foreach ($all->autoPagingIterator() as $subscription) {
+            if ($subscription->id !== $keepId
+                && in_array($subscription->status, ['active', 'past_due', 'unpaid', 'trialing'], true)) {
+                $this->cancelSubscription($subscription->id);
+                $cancelled[] = $subscription->id;
+            }
+        }
+
+        if ($cancelled) {
+            Log::info('Cancelled older Stripe subscriptions after a new plan started', [
+                'customer_id' => $customerId, 'kept' => $keepId, 'cancelled' => $cancelled,
+            ]);
+        }
+
+        return $cancelled;
     }
 
     public function cancelIncompleteSubscriptions(Customer $customer): void

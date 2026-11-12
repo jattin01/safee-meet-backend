@@ -6,6 +6,7 @@ use App\Models\Payment;
 use App\Models\UserSubscription;
 use App\Services\AdminAuditLogger;
 use App\Services\SubscriptionMetrics;
+use App\Services\SubscriptionService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -58,6 +59,62 @@ class RevenueController extends Controller
         $data['rangeEnd'] = $rangeEnd->format('Y-m-d');
 
         return view('revenue.index', $data);
+    }
+
+    /**
+     * POST /revenue/payments/{payment}/refund: refunds a paid payment on
+     * Stripe (full by default, or a smaller amount), applies the refund
+     * policy to the user's access and records who did it and why.
+     */
+    public function refund(Request $request, Payment $payment, SubscriptionService $subscriptions, AdminAuditLogger $audit)
+    {
+        $remaining = ((int) $payment->amount - (int) $payment->amount_refunded) / 100;
+
+        $validated = $request->validate([
+            'amount' => ['required', 'numeric', 'decimal:0,2', 'min:0.01', 'max:'.$remaining],
+            'reason' => ['required', Rule::in(['requested_by_customer', 'duplicate', 'fraudulent'])],
+            'note' => ['required', 'string', 'min:3', 'max:500'],
+        ], [
+            'amount.max' => 'The refund cannot be more than the $'.number_format($remaining, 2).' still refundable.',
+            'note.required' => 'Write why this payment is being refunded.',
+        ]);
+
+        $before = $payment->only(['status', 'amount_refunded']);
+        $subscriptionBefore = $payment->subscription?->status;
+        $amountCents = (int) round($validated['amount'] * 100);
+
+        try {
+            $refund = $subscriptions->refundPayment($payment, $amountCents, $validated['reason'], [
+                'admin_id' => (string) auth('admin')->id(),
+            ]);
+        } catch (\InvalidArgumentException $e) {
+            return back()->with('error', $e->getMessage());
+        } catch (\Throwable $e) {
+            report($e);
+            $audit->log('payment.refund_failed', $payment, $before, [
+                'amount' => $validated['amount'], 'reason' => $validated['reason'], 'note' => $validated['note'], 'error' => $e->getMessage(),
+            ]);
+
+            return back()->with('error', 'Stripe could not process the refund: '.$e->getMessage());
+        }
+
+        $payment->refresh();
+        $audit->log('payment.refunded', $payment, $before + ['subscription_status' => $subscriptionBefore], [
+            'status' => $payment->status,
+            'amount_refunded' => $payment->amount_refunded,
+            'refund_amount' => $validated['amount'],
+            'reason' => $validated['reason'],
+            'note' => $validated['note'],
+            'stripe_refund_id' => $refund->id,
+            'stripe_refund_status' => $refund->status,
+            'subscription_status' => $payment->subscription?->fresh()->status,
+        ]);
+
+        $accessNote = $subscriptionBefore !== $payment->subscription?->fresh()->status
+            ? ' The plan was cancelled and access stopped.'
+            : ' The plan was not changed.';
+
+        return back()->with('success', 'Refunded $'.number_format($amountCents / 100, 2).' ('.str_replace('_', ' ', $payment->status).').'.$accessNote);
     }
 
     /**
@@ -220,6 +277,8 @@ class RevenueController extends Controller
                 'users.phone as mobile',
                 'subscription_plans.name as plan_name',
                 'payments.id as payment_id',
+                'payments.amount as payment_amount',
+                'payments.amount_refunded as payment_amount_refunded',
                 'payments.stripe_payment_intent_id',
                 'payments.stripe_invoice_id',
                 'payments.currency',

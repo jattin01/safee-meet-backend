@@ -80,8 +80,16 @@ class SubscriptionService
             $subscription = Subscription::where('stripe_subscription_id', $stripeSubscriptionId)->first();
             $isFirstPayment = false;
 
-            if ($subscription) {
-                // Renewal (or a pre-existing incomplete row being paid).
+            if ($subscription && $this->isReplaced($subscription)) {
+                // Money for a plan the user has since left (cancelled, or
+                // expired and replaced by another plan). Record the payment,
+                // never reactivate it, stop it billing, and flag for refund.
+                Log::error('Paid invoice for a replaced subscription; not reactivated, review for refund', [
+                    'subscription_id' => $subscription->id, 'invoice_id' => $invoice->id, 'amount' => $invoice->amount_paid,
+                ]);
+                $this->cancelOnStripe($stripeSubscriptionId);
+            } elseif ($subscription) {
+                // Renewal, or a Stripe retry succeeding after a failed renewal.
                 $subscription->update([
                     'status' => 'active',
                     'renews_at' => $this->invoicePeriodEnd($invoice)
@@ -206,6 +214,135 @@ class SubscriptionService
         }
 
         return $this->applyPaidInvoice($invoice);
+    }
+
+    /**
+     * Applies a refund to a payment row from Stripe's running refunded total
+     * (set, never added, so repeats change nothing). Used by the
+     * charge.refunded webhook and the admin refund action.
+     *
+     * Access policy:
+     * 1. Partial refund: payment -> partially_refunded, plan keeps running.
+     * 2. Full refund of the payment for the CURRENT period of a running
+     *    plan: payment -> refunded, plan cancelled now, Stripe subscription
+     *    cancelled so it does not renew.
+     * 3. Full refund of an OLDER payment (past period, or a plan already
+     *    ended or replaced): payment -> refunded only.
+     */
+    public function applyRefund(Payment $payment, int $refundedTotal, bool $full, ?string $paymentIntentId = null): void
+    {
+        $refunded = min($refundedTotal, (int) $payment->amount);
+        $full = $full || $refunded >= (int) $payment->amount;
+
+        $payment->update(array_filter([
+            'amount_refunded' => $refunded,
+            'status' => $full ? 'refunded' : 'partially_refunded',
+            'refunded_at' => $payment->refunded_at ?? now(),
+            // Backfill so the next lookup for this charge is a direct hit.
+            'stripe_payment_intent_id' => $payment->stripe_payment_intent_id ?: $paymentIntentId,
+        ], fn ($value) => $value !== null));
+
+        Log::info('Payment refunded', ['payment_id' => $payment->id, 'amount_refunded' => $refunded, 'full' => $full]);
+
+        if (! $full) {
+            return; // Scenario 1
+        }
+
+        $subscription = $payment->subscription;
+
+        if (! $subscription || ! in_array($subscription->status, ['trial', 'active'], true)) {
+            return; // Scenario 3: that plan is no longer running
+        }
+
+        $latestPayment = Payment::where('subscription_id', $subscription->id)
+            ->whereIn('status', [...Payment::COLLECTED_STATUSES, 'refunded'])
+            ->orderByDesc('paid_at')
+            ->orderByDesc('id')
+            ->first();
+
+        if ($latestPayment && $latestPayment->id !== $payment->id) {
+            return; // Scenario 3: a later payment covers the current period
+        }
+
+        // Scenario 2: the current period was refunded in full.
+        $subscription->update(['status' => 'cancelled', 'cancelled_at' => now()]);
+
+        if (! Subscription::where('user_id', $subscription->user_id)->whereKeyNot($subscription->getKey())
+            ->whereIn('status', ['trial', 'active'])->exists()) {
+            $subscription->user()->update(['subscription_status' => 'cancelled']);
+        }
+
+        if ($subscription->stripe_subscription_id) {
+            // Its customer.subscription.deleted event then finds the row
+            // already cancelled and does nothing.
+            $this->cancelOnStripe($subscription->stripe_subscription_id);
+        }
+    }
+
+    /**
+     * Admin refund (STR-027): refunds $amountCents of a collected payment on
+     * Stripe and applies it locally right away; the charge.refunded webhook
+     * that follows finds it already applied. Returns the Stripe Refund.
+     *
+     * @throws \InvalidArgumentException when the payment cannot be refunded
+     */
+    public function refundPayment(Payment $payment, int $amountCents, string $stripeReason, array $metadata = []): \Stripe\Refund
+    {
+        return $this->withLock('refund:payment:'.$payment->id, 15, function () use ($payment, $amountCents, $stripeReason, $metadata) {
+            $payment->refresh();
+
+            if (! in_array($payment->status, Payment::COLLECTED_STATUSES, true)) {
+                throw new \InvalidArgumentException('Only a paid payment can be refunded.');
+            }
+
+            $remaining = (int) $payment->amount - (int) $payment->amount_refunded;
+
+            if ($amountCents <= 0 || $amountCents > $remaining) {
+                throw new \InvalidArgumentException('The refund amount must be between 0.01 and '.number_format($remaining / 100, 2).'.');
+            }
+
+            $stripe = app(StripeService::class);
+            $paymentIntentId = $payment->stripe_payment_intent_id
+                ?: ($payment->stripe_invoice_id ? $stripe->paymentIntentIdForInvoice($payment->stripe_invoice_id) : null);
+
+            if (! $paymentIntentId) {
+                throw new \InvalidArgumentException('This payment has no Stripe charge to refund.');
+            }
+
+            $refund = $stripe->refundPaymentIntent($paymentIntentId, $amountCents, $stripeReason, [
+                'payment_id' => (string) $payment->id, ...$metadata,
+            ], 'refund-'.$payment->id.'-'.(int) $payment->amount_refunded.'-'.$amountCents);
+
+            $this->applyRefund($payment, (int) $payment->amount_refunded + (int) $refund->amount, false, $paymentIntentId);
+
+            return $refund;
+        });
+    }
+
+    /**
+     * A subscription the user has moved off: cancelled, or expired while
+     * another plan of theirs is running. A late payment must not revive it.
+     */
+    private function isReplaced(Subscription $subscription): bool
+    {
+        if ($subscription->status === 'cancelled') {
+            return true;
+        }
+
+        return $subscription->status === 'expired'
+            && Subscription::where('user_id', $subscription->user_id)
+                ->whereKeyNot($subscription->getKey())
+                ->whereIn('status', ['trial', 'active'])
+                ->exists();
+    }
+
+    private function cancelOnStripe(string $stripeSubscriptionId): void
+    {
+        try {
+            app(StripeService::class)->cancelSubscription($stripeSubscriptionId);
+        } catch (\Throwable $e) {
+            // Already cancelled or expired on Stripe.
+        }
     }
 
     /**
@@ -338,6 +475,22 @@ class SubscriptionService
                 } catch (\Throwable $e) {
                     // Already cancelled or expired on Stripe.
                 }
+            }
+        }
+
+        // Older plans whose renewal failed are 'expired' locally but still
+        // past_due on Stripe, which keeps retrying them: a retry that
+        // succeeds later would charge for a plan the user has left. Close
+        // every other live Stripe subscription of this customer.
+        $customerId = $subscription->stripe_customer_id ?? $user->stripe_customer_id;
+
+        if ($subscription->wasRecentlyCreated && $customerId) {
+            try {
+                app(StripeService::class)->cancelOtherLiveSubscriptions($customerId, $subscription->stripe_subscription_id);
+            } catch (\Throwable $e) {
+                Log::warning('Could not close older Stripe subscriptions after activation', [
+                    'user_id' => $user->id, 'message' => $e->getMessage(),
+                ]);
             }
         }
 

@@ -85,6 +85,7 @@ Route::middleware('auth:admin')->group(function () {
         Route::get('/revenue/usernames', [RevenueController::class, 'usernames'])->name('revenue.usernamefilter');
         Route::get('/revenue/export', [RevenueController::class, 'export'])->name('revenue.export');
         Route::get('/revenue/trend', [RevenueController::class, 'trend'])->name('revenue.trend');
+        Route::post('/revenue/payments/{payment}/refund', [RevenueController::class, 'refund'])->name('revenue.refund');
 
         Route::get('/users/export', [UserController::class, 'export'])->name('users.export');
     });

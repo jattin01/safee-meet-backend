@@ -15,6 +15,7 @@
                 <th class="px-5 py-4">Payment Date</th>
                 <th class="px-5 py-4">Start Date</th>
                 <th class="px-5 py-4">End Date</th>
+                <th class="px-5 py-4">Action</th>
             </tr>
         </thead>
         <tbody>
@@ -72,10 +73,28 @@
                     <td class="whitespace-nowrap px-5 py-4 text-gray-400">
                         {{ $transaction->renews_at?->format('d M Y') ?? '—' }}
                     </td>
+                    <td class="whitespace-nowrap px-5 py-4">
+                        @php
+                            $refundableCents = (int) $transaction->payment_amount - (int) $transaction->payment_amount_refunded;
+                        @endphp
+                        @if($transaction->payment_id && in_array($transaction->payment_status, ['succeeded', 'partially_refunded'], true) && $refundableCents > 0)
+                            <button type="button"
+                                    class="js-refund rounded-lg border border-purple-500/40 px-3 py-1.5 text-xs font-medium text-purple-300 hover:bg-purple-500/10"
+                                    data-url="{{ route('revenue.refund', $transaction->payment_id) }}"
+                                    data-refundable="{{ number_format($refundableCents / 100, 2, '.', '') }}"
+                                    data-user="{{ $transaction->user_name ?: '—' }}"
+                                    data-plan="{{ $transaction->plan_name ?: '—' }}"
+                                    data-partial="{{ $transaction->payment_status === 'partially_refunded' ? '1' : '0' }}">
+                                Refund
+                            </button>
+                        @else
+                            <span class="text-xs text-gray-600">—</span>
+                        @endif
+                    </td>
                 </tr>
             @empty
                 <tr>
-                    <td colspan="12" class="px-5 py-10 text-center text-sm text-gray-500">No transactions found.</td>
+                    <td colspan="14" class="px-5 py-10 text-center text-sm text-gray-500">No transactions found.</td>
                 </tr>
             @endforelse
         </tbody>
