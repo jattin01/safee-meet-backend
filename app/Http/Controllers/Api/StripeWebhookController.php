@@ -3,21 +3,16 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Mail\SubscriptionInvoiceMail;
 use App\Models\Payment;
 use App\Models\PaymentWebhookEvent;
-use App\Models\Coupon;
 use App\Models\Subscription;
-use App\Models\SubscriptionPlan;
 use App\Models\User;
-use App\Services\PushNotificationService;
 use App\Services\StripeService;
 use App\Services\SubscriptionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use Stripe\Exception\SignatureVerificationException;
 use UnexpectedValueException;
 use Stripe\Webhook;
@@ -100,108 +95,17 @@ class StripeWebhookController extends Controller
             return response()->json(['message' => 'Webhook processed successfully'], 200);
     }
 
-    $paymentIntent = $event->data->object;
-
-    $paymentIntentId = $paymentIntent->id ?? null;
-    $stripeStatus = $paymentIntent->status ?? null;
-
-    Log::info('Verified Stripe webhook received', [
+    // Everything else (payment_intent.*, payment_link.*, ...) is logged
+    // only. Subscriptions are driven by the invoice events above; the old
+    // payment_intent.* handlers re-sent purchase notifications after
+    // invoice.paid and could flip a paid plan to incomplete/expired.
+    Log::info('Stripe webhook event ignored', [
         'event_id' => $event->id,
         'event_type' => $eventType,
-        'payment_intent_id' => $paymentIntentId,
-        'stripe_status' => $stripeStatus,
+        'object_id' => $event->data->object->id ?? null,
     ]);
 
-    if (! $paymentIntentId) {
-        return response()->json([
-            'message' => 'Payment Intent ID not found',
-        ], 422);
-    }
-
-    $payment = Payment::where('stripe_payment_intent_id', $paymentIntentId)->first();
-
-    if (! $payment || ! $payment->subscription) {
-        Log::warning('Subscription not found', [
-            'payment_intent_id' => $paymentIntentId,
-        ]);
-
-        return response()->json([
-            'message' => 'Subscription not found',
-        ], 200);
-    }
-
-    $subscription = $payment->subscription;
-
-    switch ($eventType) {
-        case 'payment_intent.created':
-            Log::warning('step1 Subscription set to incomplete', ['payment_intent_id' => $paymentIntentId]);
-            $subscription->update([
-                'status' => 'incomplete',
-            ]);
-            break;
-
-        case 'payment_intent.processing':
-            Log::warning(' step 2 Subscription set to incomplete', ['payment_intent_id' => $paymentIntentId]);
-            $subscription->update([
-                'status' => 'incomplete',
-            ]);
-            break;
-
-        case 'payment_intent.succeeded':
-            Log::warning('Step 3 Subscription set to active', ['payment_intent_id' => $paymentIntentId]);
-            $subscription->update([
-                'status' => 'active',
-            ]);
-            $subscription->user()->update(['subscription_status' => 'active']);
-            // Stripe's received amount is the source of truth for revenue.
-            $payment->update([
-                'status' => 'succeeded',
-                'amount' => $paymentIntent->amount_received ?? $payment->amount,
-                'currency' => $paymentIntent->currency ?? $payment->currency,
-                'paid_at' => now(),
-            ]);
-
-            app(PushNotificationService::class)->sendToUser(
-                $subscription->user,
-                'Subscription purchase successful',
-                'Your plan was purchased successfully.',
-                ['type' => 'subscription_purchased', 'subscription_id' => (string) $subscription->id],
-            );
-
-            $this->sendInvoiceMail($subscription, $payment);
-            break;
-
-        case 'payment_intent.payment_failed':
-            Log::warning('Step 4 Subscription set to expired', ['payment_intent_id' => $paymentIntentId]);
-            $subscription->update([
-                'status' => 'expired',
-            ]);
-            $this->syncUserStatus($subscription, 'expired');
-            $payment->update([
-                'status' => 'failed',
-            ]);
-            break;
-
-        case 'payment_intent.canceled':
-            Log::warning('Step 5 Subscription set to cancelled', ['payment_intent_id' => $paymentIntentId]);
-            $subscription->update([
-                'status' => 'cancelled',
-                'cancelled_at' => now(),
-            ]);
-            $this->syncUserStatus($subscription, 'cancelled');
-            break;
-
-        default:
-            Log::info('Stripe webhook event ignored', [
-                'event_type' => $eventType,
-                'payment_intent_id' => $paymentIntentId,
-            ]);
-            break;
-    }
-
-    return response()->json([
-        'message' => 'Webhook processed successfully',
-    ], 200);
+    return response()->json(['message' => 'Event ignored'], 200);
 }
 
     /**
@@ -216,112 +120,9 @@ class StripeWebhookController extends Controller
 
     private function handleInvoicePaid($event): void
     {
-        $invoice = $event->data->object;
-        $stripeSubscriptionId = $this->invoiceSubscriptionId($invoice);
-
-        if (! $stripeSubscriptionId) {
-            return;
-        }
-
-        $subscription = Subscription::where('stripe_subscription_id', $stripeSubscriptionId)->first();
-        $isFirstPayment = false;
-
-        if ($subscription) {
-            // Renewal (or a pre-existing incomplete row being paid).
-            $subscription->update([
-                'status' => 'active',
-                'renews_at' => $subscription->billing_cycle === 'yearly' ? now()->addYear() : now()->addMonth(),
-            ]);
-            $subscription->user()->update(['subscription_status' => 'active']);
-        } else {
-            // First payment of a subscribe() checkout — nothing exists
-            // locally until now.
-            $subscription = $this->activateFromStripe($stripeSubscriptionId);
-
-            if (! $subscription) {
-                return;
-            }
-
-            $isFirstPayment = $subscription->wasRecentlyCreated;
-        }
-
-        // Newer Stripe API versions no longer put payment_intent on the
-        // invoice, so it is looked up via the invoice's payments. It is
-        // needed later to match a refund (charge.refunded) to this row. Only
-        // set it when found so an id stored earlier isn't wiped out.
-        $paymentIntentId = $invoice->payment_intent ?? null;
-
-        if (! $paymentIntentId) {
-            try {
-                $paymentIntentId = app(StripeService::class)->paymentIntentIdForInvoice($invoice->id);
-            } catch (\Throwable $e) {
-                Log::warning('Could not resolve PaymentIntent for invoice', [
-                    'invoice_id' => $invoice->id,
-                    'message' => $e->getMessage(),
-                ]);
-            }
-        }
-
-        $payment = Payment::updateOrCreate(
-            ['stripe_invoice_id' => $invoice->id],
-            array_filter([
-                'user_id' => $subscription->user_id,
-                'subscription_id' => $subscription->id,
-                'stripe_payment_intent_id' => $paymentIntentId,
-                'amount' => $invoice->amount_paid,
-                'currency' => $invoice->currency,
-                'status' => 'succeeded',
-                'paid_at' => now(),
-            ], fn ($value) => $value !== null),
-        );
-
-        if ($isFirstPayment) {
-            app(PushNotificationService::class)->sendToUser(
-                $subscription->user,
-                'Subscription purchase successful',
-                'Your plan was purchased successfully.',
-                ['type' => 'subscription_purchased', 'subscription_id' => (string) $subscription->id],
-            );
-        }
-
-        $this->sendInvoiceMail($subscription, $payment);
-    }
-
-    /**
-     * Creates the local subscription for a paid plan from the metadata
-     * subscribe() attached to the Stripe subscription, now that its first
-     * invoice is paid. Returns the existing row on a repeated delivery.
-     */
-    private function activateFromStripe(string $stripeSubscriptionId): ?Subscription
-    {
-        $stripeSubscription = app(StripeService::class)->retrieveSubscription($stripeSubscriptionId);
-        $metadata = $stripeSubscription->metadata;
-
-        $user = User::find($metadata['user_id'] ?? null);
-        // withTrashed: if the plan was deleted while this checkout was still
-        // being paid, the user still gets the plan they paid for.
-        $plan = SubscriptionPlan::withTrashed()->find($metadata['plan_id'] ?? null);
-
-        if (! $user || ! $plan) {
-            Log::error('Paid Stripe subscription has no matching user/plan', [
-                'stripe_subscription_id' => $stripeSubscriptionId,
-                'user_id' => $metadata['user_id'] ?? null,
-                'plan_id' => $metadata['plan_id'] ?? null,
-            ]);
-
-            return null;
-        }
-
-        $billingCycle = ($metadata['billing_cycle'] ?? null) === 'yearly' ? 'yearly' : 'monthly';
-
-        return app(SubscriptionService::class)->activate($user, $plan, [
-            'price' => $metadata['price'] ?? ($billingCycle === 'yearly' ? $plan->yearly_price : $plan->monthly_price),
-            'billing_cycle' => $billingCycle,
-            'status' => 'active',
-            'renews_at' => $billingCycle === 'yearly' ? now()->addYear() : now()->addMonth(),
-            'stripe_customer_id' => $stripeSubscription->customer,
-            'stripe_subscription_id' => $stripeSubscription->id,
-        ], Coupon::find($metadata['coupon_id'] ?? null), (float) ($metadata['coupon_discount'] ?? 0));
+        // Shared with the subscribe() pre-check and the reconcile command, so
+        // the payment is recorded once whichever of them sees it first.
+        app(SubscriptionService::class)->applyPaidInvoice($event->data->object);
     }
 
     /**
@@ -341,38 +142,34 @@ class StripeWebhookController extends Controller
         }
     }
 
-    /**
-     * Builds the flat set of fields SubscriptionInvoiceMail needs from the
-     * subscription/payment models and queues it — shared by the first-purchase
-     * (payment_intent.succeeded) and renewal (invoice.paid) paths.
-     */
-    private function sendInvoiceMail(Subscription $subscription, Payment $payment): void
-    {
-        $user = $subscription->user;
-
-        if (empty($user?->email)) {
-            return;
-        }
-
-        Mail::to($user->email)->queue(new SubscriptionInvoiceMail(
-            userName: $user->name,
-            planName: $subscription->plan?->name ?? '-',
-            billingCycle: $subscription->billing_cycle,
-            amount: ($payment->amount ?? 0) / 100,
-            currency: $payment->currency ?? 'usd',
-            status: $subscription->status,
-            paymentDate: ($payment->paid_at ?? now())->format('d M Y'),
-            nextBillingDate: optional($subscription->renews_at)->format('d M Y'),
-            transactionId: $payment->stripe_invoice_id ?? $payment->stripe_payment_intent_id,
-        ));
-    }
-
     private function handlePaymentFailed($event): void
     {
         $invoice = $event->data->object;
-        $subscription = Subscription::where('stripe_subscription_id', $this->invoiceSubscriptionId($invoice))->first();
+
+        // Events can arrive out of order: a failed attempt delivered after
+        // the same invoice was paid (Stripe retried and succeeded) must not
+        // undo the payment or end the plan.
+        $alreadyCollected = Payment::where('stripe_invoice_id', $invoice->id)
+            ->whereIn('status', [...Payment::COLLECTED_STATUSES, 'refunded'])
+            ->exists();
+
+        if ($alreadyCollected) {
+            Log::info('invoice.payment_failed for an invoice already paid; ignoring', ['invoice_id' => $invoice->id]);
+
+            return;
+        }
+
+        $stripeSubscriptionId = $this->invoiceSubscriptionId($invoice);
+        $subscription = $stripeSubscriptionId
+            ? Subscription::where('stripe_subscription_id', $stripeSubscriptionId)->first()
+            : null;
 
         if (! $subscription) {
+            // A declined FIRST payment: nothing is stored locally before the
+            // first invoice is paid, so record the failed attempt against
+            // the user (no subscription, no access) for the admin reports.
+            $this->recordFailedFirstPayment($invoice, $stripeSubscriptionId);
+
             return;
         }
 
@@ -389,6 +186,47 @@ class StripeWebhookController extends Controller
                 'currency' => $invoice->currency,
                 'status' => 'failed',
             ], fn ($value) => $value !== null),
+        );
+    }
+
+    private function recordFailedFirstPayment($invoice, ?string $stripeSubscriptionId): void
+    {
+        if (! $stripeSubscriptionId) {
+            return;
+        }
+
+        // The invoice carries a copy of the subscription's metadata; fall
+        // back to fetching the subscription for older payloads.
+        $userId = $invoice->parent?->subscription_details?->metadata?->user_id ?? null;
+
+        if (! $userId) {
+            try {
+                $userId = app(StripeService::class)->retrieveSubscription($stripeSubscriptionId)->metadata['user_id'] ?? null;
+            } catch (\Throwable $e) {
+                Log::warning('Could not load Stripe subscription for a failed first payment', [
+                    'stripe_subscription_id' => $stripeSubscriptionId, 'message' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        if (! $userId || ! User::whereKey($userId)->exists()) {
+            Log::warning('Failed payment for an unknown user', [
+                'invoice_id' => $invoice->id, 'stripe_subscription_id' => $stripeSubscriptionId,
+            ]);
+
+            return;
+        }
+
+        // Keyed on the invoice: retries of the same checkout update one row,
+        // and a later invoice.paid for it turns the row into the success.
+        Payment::updateOrCreate(
+            ['stripe_invoice_id' => $invoice->id],
+            [
+                'user_id' => $userId,
+                'amount' => $invoice->amount_due,
+                'currency' => $invoice->currency,
+                'status' => 'failed',
+            ],
         );
     }
 

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\SyncPlanStripePrices;
 use App\Models\AdminAuditLog;
 use App\Models\Feature;
 use App\Models\Subscription;
@@ -344,19 +345,35 @@ class SubscriptionsController extends Controller
     }
 
     /**
-     * Point the plan's Stripe Prices at the admin-set amounts, so users are
-     * charged exactly the (discounted) price shown in the app. Returns an
-     * error message for the admin when Stripe couldn't be reached — the next
-     * save, or the next subscribe on this plan, retries the sync.
+     * Point the plan's Stripe Prices (and Product name) at the admin values,
+     * so every purchase and renewal charges exactly the (discounted) price
+     * shown in the app; a price change also moves running subscribers onto
+     * it. When Stripe can't be reached the save still stands: a queued job
+     * retries with backoff, the daily stripe:sync-plan-prices check is the
+     * backstop, and a purchase on the plan syncs before charging.
      */
     private function syncStripePrices(SubscriptionPlan $plan): ?string
     {
+        $stripe = app(StripeService::class);
+
         try {
             foreach (['monthly', 'yearly'] as $billingCycle) {
-                app(StripeService::class)->syncPlanPrice($plan, $billingCycle);
+                $stripe->syncPlanPrice($plan, $billingCycle);
             }
+
+            $stripe->syncPlanProductName($plan);
         } catch (\Throwable $e) {
-            return 'Plan saved, but syncing its price to Stripe failed: '.$e->getMessage();
+            report($e);
+            $this->audit()->log('plan.stripe_sync_failed', $plan, null, ['error' => $e->getMessage()]);
+
+            try {
+                SyncPlanStripePrices::dispatch($plan->id)->delay(now()->addMinute());
+            } catch (\Throwable $retryError) {
+                report($retryError); // sync queue runs it inline; the daily check still covers it
+            }
+
+            return 'Plan saved, but Stripe could not be updated right now ('.$e->getMessage().'). '
+                .'It retries automatically, and new purchases still charge the new price.';
         }
 
         return null;

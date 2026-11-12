@@ -6,12 +6,19 @@ use App\Http\Controllers\Controller;
 use App\Models\Coupon;
 use App\Models\Feature;
 use App\Models\SubscriptionPlan;
+use App\Models\User;
 use App\Services\StripeService;
 use App\Services\SubscriptionService;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
+use Stripe\Exception\ApiConnectionException;
+use Stripe\Exception\ApiErrorException;
+use Stripe\Exception\CardException;
+use Stripe\Exception\RateLimitException;
 
 class SubscriptionController extends Controller
 {
@@ -381,32 +388,103 @@ class SubscriptionController extends Controller
             ], 422);
         }
 
-        // Self-heals plans added or repriced before Stripe sync existed, so the
-        // Stripe Price always matches the admin-set amount.
-        $this->stripe->syncPlanPrice($plan, $validated['billing_cycle']);
-        $priceId = $this->stripe->resolvePriceId($plan, $validated['billing_cycle']);
+        $metadata = [
+            'user_id' => $user->id,
+            'plan_id' => $plan->id,
+            'billing_cycle' => $validated['billing_cycle'],
+            'price' => $price,
+            'coupon_id' => $appliedCoupon?->id,
+            'coupon_discount' => $couponDiscount,
+        ];
+
+        try {
+            // One checkout per user at a time (double tap, two devices): the
+            // second request waits, then sees the first one's result.
+            return $this->subscriptions->withLock('checkout:user:'.$user->id, 15, fn () => $this->startPaidCheckout(
+                $user, $plan, $validated['billing_cycle'], $validated['stripe_payment_method_id'], $price, $metadata, $couponDiscount,
+            ));
+        } catch (LockTimeoutException) {
+            return response()->json([
+                'message' => 'Another purchase is already in progress. Please wait a moment and check your plan.',
+                'code' => 'checkout_in_progress',
+            ], 409);
+        } catch (CardException $e) {
+            // The card was refused while attaching it (expired, declined,
+            // incorrect details): the user can fix it and try again.
+            Log::info('Subscribe: card refused by Stripe', ['user_id' => $user->id, 'code' => $e->getStripeCode()]);
+
+            return response()->json([
+                'message' => $e->getMessage() ?: 'Your card was declined. Please try another card.',
+                'code' => $e->getStripeCode() ?? 'card_declined',
+            ], 422);
+        } catch (ApiConnectionException|RateLimitException $e) {
+            report($e);
+
+            return response()->json([
+                'message' => 'Payment service is temporarily unavailable. Please try again in a moment.',
+                'code' => 'payment_service_unavailable',
+            ], 503);
+        } catch (ApiErrorException $e) {
+            report($e);
+
+            return response()->json([
+                'message' => 'We could not start the payment. Please try again.',
+                'code' => 'payment_error',
+            ], 502);
+        }
+    }
+
+    /**
+     * The Stripe half of a paid subscribe(), run under the user's checkout
+     * lock. If Stripe already holds a paid subscription of this user that
+     * we have not recorded (its invoice.paid webhook is late), that one is
+     * activated now and no second charge is started.
+     */
+    private function startPaidCheckout(
+        User $user,
+        SubscriptionPlan $plan,
+        string $billingCycle,
+        string $paymentMethodId,
+        float $price,
+        array $metadata,
+        float $couponDiscount,
+    ): JsonResponse {
+        // Self-heals plans added or repriced before Stripe sync existed, so
+        // the Stripe Price always matches the admin-set amount.
+        $this->stripe->syncPlanPrice($plan, $billingCycle);
+        $priceId = $this->stripe->resolvePriceId($plan, $billingCycle);
 
         if (! $priceId) {
             return response()->json([
-                'message' => "Plan '{$plan->slug}' has no Stripe price configured for {$validated['billing_cycle']} billing.",
+                'message' => "Plan '{$plan->slug}' has no Stripe price configured for {$billingCycle} billing.",
             ], 422);
         }
 
         $stripeCustomer = $this->stripe->createOrGetCustomer($user);
+
+        if ($paid = $this->stripe->paidUnrecordedSubscription($stripeCustomer, $user)) {
+            $activated = $this->subscriptions->reconcilePaidStripeSubscription($paid);
+
+            if ($activated) {
+                Log::info('Subscribe: payment already received, activated instead of charging again', [
+                    'user_id' => $user->id, 'stripe_subscription_id' => $paid->id,
+                ]);
+
+                return response()->json([
+                    'message' => 'Payment already received. Your plan is now active.',
+                    'code' => 'payment_already_received',
+                    'subscription' => $activated->load('plan')->toArray(),
+                ], 200);
+            }
+        }
+
         $this->stripe->cancelIncompleteSubscriptions($stripeCustomer);
 
         $stripeSubscription = $this->stripe->createSubscription(
             $stripeCustomer,
             $priceId,
-            $validated['stripe_payment_method_id'],
-            [
-                'user_id' => $user->id,
-                'plan_id' => $plan->id,
-                'billing_cycle' => $validated['billing_cycle'],
-                'price' => $price,
-                'coupon_id' => $appliedCoupon?->id,
-                'coupon_discount' => $couponDiscount,
-            ],
+            $paymentMethodId,
+            $metadata,
             (int) round($couponDiscount * 100),
         );
 
@@ -416,13 +494,19 @@ class SubscriptionController extends Controller
             'user_id' => $user->id,
             'plan_id' => $plan->id,
             'price' => number_format($price, 2, '.', ''),
-            'billing_cycle' => $validated['billing_cycle'],
+            'billing_cycle' => $billingCycle,
             'status' => 'incomplete',
             'stripe_customer_id' => $stripeCustomer->id,
             'stripe_subscription_id' => $stripeSubscription->id,
             'plan' => $plan->withoutRelations()->toArray(),
             'payment_intent_client_secret' => $stripeSubscription->latest_invoice?->confirmation_secret?->client_secret,
+            // Kept for app compatibility: despite the name this has always
+            // been the Stripe SUBSCRIPTION status ('incomplete' until paid).
+            // The app confirms with the client secret either way; 3DS is
+            // handled by the Stripe SDK during that confirmation.
             'payment_intent_status' => $stripeSubscription->status,
+            'stripe_subscription_status' => $stripeSubscription->status,
+            'invoice_status' => $stripeSubscription->latest_invoice?->status,
         ], 201);
     }
 

@@ -12,9 +12,10 @@ class SubscriptionMetrics
      *
      * - Only status 'active' counts: trials are not paying yet, and
      *   expired / cancelled / incomplete rows collect nothing.
-     * - subscriptions.price stores the first payment, after any coupon. A
-     *   coupon applies to the first invoice only, so renewals bill
-     *   price + coupon discount; that recurring amount is what counts.
+     * - Stripe-billed subscriptions renew at the plan's current (discounted)
+     *   price: a price change moves them onto it. That is what counts.
+     * - Others: subscriptions.price stores the first payment, after any
+     *   coupon; the coupon is one-off, so price + discount recurs.
      * - Yearly plans are normalized to a monthly figure (amount / 12).
      *
      * Single source for every MRR shown in the admin panel, so the Plans and
@@ -26,7 +27,8 @@ class SubscriptionMetrics
     {
         $subscriptions = Subscription::query()
             ->where('status', 'active')
-            ->get(['id', 'price', 'billing_cycle']);
+            ->with('plan:id,monthly_price,yearly_price')
+            ->get(['id', 'plan_id', 'price', 'billing_cycle', 'stripe_subscription_id']);
 
         $discounts = CouponRedemption::query()
             ->whereIn('subscription_id', $subscriptions->pluck('id'))
@@ -35,7 +37,9 @@ class SubscriptionMetrics
             ->pluck('total', 'subscription_id');
 
         $mrr = $subscriptions->sum(function (Subscription $subscription) use ($discounts) {
-            $recurring = (float) $subscription->price + (float) ($discounts[$subscription->id] ?? 0);
+            $recurring = $subscription->stripe_subscription_id && $subscription->plan
+                ? (float) ($subscription->billing_cycle === 'yearly' ? $subscription->plan->yearly_price : $subscription->plan->monthly_price)
+                : (float) $subscription->price + (float) ($discounts[$subscription->id] ?? 0);
 
             return $subscription->billing_cycle === 'yearly' ? $recurring / 12 : $recurring;
         });

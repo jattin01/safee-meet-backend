@@ -62,6 +62,8 @@ it('writes nothing locally and keeps the current plan when a paid subscribe is n
         $mock->shouldReceive('syncPlanPrice')->once();
         $mock->shouldReceive('resolvePriceId')->andReturn('price_test_monthly');
         $mock->shouldReceive('createOrGetCustomer')->andReturn(Customer::constructFrom(['id' => 'cus_test']));
+        // Nothing already paid on Stripe, so a normal checkout starts.
+        $mock->shouldReceive('paidUnrecordedSubscription')->once()->andReturnNull();
         $mock->shouldReceive('cancelIncompleteSubscriptions')->once();
         $mock->shouldReceive('createSubscription')
             ->withArgs(fn ($customer, $priceId, $pm, $metadata) => $priceId === 'price_test_monthly'
