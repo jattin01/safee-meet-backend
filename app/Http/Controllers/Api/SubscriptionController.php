@@ -18,6 +18,7 @@ use Illuminate\Validation\Rule;
 use Stripe\Exception\ApiConnectionException;
 use Stripe\Exception\ApiErrorException;
 use Stripe\Exception\CardException;
+use Stripe\Exception\InvalidRequestException;
 use Stripe\Exception\RateLimitException;
 
 class SubscriptionController extends Controller
@@ -478,15 +479,29 @@ class SubscriptionController extends Controller
             }
         }
 
-        $this->stripe->cancelIncompleteSubscriptions($stripeCustomer);
+        // A retry of the same checkout (same plan, cycle, price, coupon and
+        // card), e.g. after a timeout, resumes the unpaid one Stripe already
+        // has instead of creating a duplicate. Anything else starts fresh.
+        $metadata['payment_method'] = $paymentMethodId;
+        $stripeSubscription = $this->stripe->reusableIncompleteSubscription($stripeCustomer, $priceId, $metadata);
 
-        $stripeSubscription = $this->stripe->createSubscription(
-            $stripeCustomer,
-            $priceId,
-            $paymentMethodId,
-            $metadata,
-            (int) round($couponDiscount * 100),
-        );
+        if ($stripeSubscription) {
+            Log::info('Subscribe: resuming the pending checkout instead of creating another', [
+                'user_id' => $user->id, 'stripe_subscription_id' => $stripeSubscription->id,
+            ]);
+            $this->stripe->cancelIncompleteSubscriptions($stripeCustomer, $stripeSubscription->id);
+        } else {
+            $this->stripe->cancelIncompleteSubscriptions($stripeCustomer);
+
+            $stripeSubscription = $this->stripe->createSubscription(
+                $stripeCustomer,
+                $priceId,
+                $paymentMethodId,
+                $metadata,
+                (int) round($couponDiscount * 100),
+                'checkout-'.$user->id.'-'.substr(sha1(json_encode([$priceId, $metadata])), 0, 24),
+            );
+        }
 
         // App must confirm this client_secret via Stripe SDK (confirmPayment);
         // the invoice.paid webhook then activates the plan.
@@ -522,8 +537,38 @@ class SubscriptionController extends Controller
             return response()->json(['message' => 'No active subscription'], 404);
         }
 
+        // Stripe first: if it can't be reached, nothing changes locally and
+        // the user is told to try again, so the plan is never shown as
+        // cancelled while Stripe keeps billing it.
         if ($subscription->stripe_subscription_id) {
-            $this->stripe->cancelSubscription($subscription->stripe_subscription_id);
+            try {
+                $this->stripe->cancelSubscription($subscription->stripe_subscription_id);
+            } catch (InvalidRequestException $e) {
+                // Already gone on Stripe (cancelled in the Dashboard, or its
+                // deleted webhook not processed yet): finish locally.
+                if ($e->getStripeCode() !== 'resource_missing') {
+                    report($e);
+
+                    return response()->json([
+                        'message' => 'We could not cancel your plan right now. Please try again.',
+                        'code' => 'payment_error',
+                    ], 502);
+                }
+            } catch (ApiConnectionException|RateLimitException $e) {
+                report($e);
+
+                return response()->json([
+                    'message' => 'Payment service is temporarily unavailable, so your plan was not cancelled. Please try again in a moment.',
+                    'code' => 'payment_service_unavailable',
+                ], 503);
+            } catch (ApiErrorException $e) {
+                report($e);
+
+                return response()->json([
+                    'message' => 'We could not cancel your plan right now. Please try again.',
+                    'code' => 'payment_error',
+                ], 502);
+            }
         }
 
         DB::transaction(function () use ($user, $subscription) {

@@ -107,6 +107,10 @@ class SubscriptionService
                 }
 
                 $isFirstPayment = $subscription->wasRecentlyCreated;
+
+                if ($isFirstPayment) {
+                    $this->alignToCurrentPrice($subscription);
+                }
             }
 
             // Newer Stripe API versions no longer put payment_intent on the
@@ -229,10 +233,28 @@ class SubscriptionService
      * 3. Full refund of an OLDER payment (past period, or a plan already
      *    ended or replaced): payment -> refunded only.
      */
-    public function applyRefund(Payment $payment, int $refundedTotal, bool $full, ?string $paymentIntentId = null): void
+    public function applyRefund(Payment $payment, int $refundedTotal, bool $full, ?string $paymentIntentId = null, bool $exact = false): void
     {
-        $refunded = min($refundedTotal, (int) $payment->amount);
-        $full = $full || $refunded >= (int) $payment->amount;
+        $payment->refresh();
+        $refunded = min(max($refundedTotal, 0), (int) $payment->amount);
+
+        if (! $exact) {
+            // A webhook carries the total as of when it was sent, and Stripe
+            // does not keep them in order: an older, smaller total arriving
+            // late must never shrink what has already been recorded.
+            $refunded = max($refunded, (int) $payment->amount_refunded);
+            $full = $full || $payment->status === 'refunded';
+        }
+
+        $full = ($full && ! $exact) || $refunded >= (int) $payment->amount;
+
+        if ($refunded === 0) {
+            // Exact total from Stripe after a failed refund: nothing refunded.
+            $payment->update(['amount_refunded' => 0, 'status' => 'succeeded', 'refunded_at' => null]);
+            Log::warning('Refund reversed: Stripe reports nothing refunded on this payment', ['payment_id' => $payment->id]);
+
+            return;
+        }
 
         $payment->update(array_filter([
             'amount_refunded' => $refunded,
@@ -313,6 +335,13 @@ class SubscriptionService
                 'payment_id' => (string) $payment->id, ...$metadata,
             ], 'refund-'.$payment->id.'-'.(int) $payment->amount_refunded.'-'.$amountCents);
 
+            // 'pending' counts as refunded (cards almost always succeed); if
+            // it fails later, charge.refund.updated reverses it.
+            if (in_array($refund->status, ['failed', 'canceled'], true)) {
+                throw new \RuntimeException('Stripe did not complete the refund (status: '.$refund->status
+                    .($refund->failure_reason ? ', '.$refund->failure_reason : '').').');
+            }
+
             $this->applyRefund($payment, (int) $payment->amount_refunded + (int) $refund->amount, false, $paymentIntentId);
 
             return $refund;
@@ -334,6 +363,37 @@ class SubscriptionService
                 ->whereKeyNot($subscription->getKey())
                 ->whereIn('status', ['trial', 'active'])
                 ->exists();
+    }
+
+    /**
+     * A checkout started before an admin price change and paid after it
+     * ran on the old Stripe Price, and the move-subscribers job did not see
+     * it (nothing was local yet). Its first payment stands as agreed; from
+     * the next renewal it bills the plan's current price, like everyone.
+     */
+    private function alignToCurrentPrice(Subscription $subscription): void
+    {
+        // Best effort: never let this fail the payment being recorded.
+        try {
+            $plan = $subscription->plan;
+            $stripe = app(StripeService::class);
+            $priceId = $plan ? $stripe->resolvePriceId($plan, $subscription->billing_cycle) : null;
+
+            if (! $priceId || ! $subscription->stripe_subscription_id) {
+                return;
+            }
+
+            if ($stripe->moveSubscriptionToPrice($subscription->stripe_subscription_id, $priceId)) {
+                Log::info('New subscription paid at an old price; moved to the current price for renewals', [
+                    'subscription_id' => $subscription->id, 'price_id' => $priceId,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            // The daily stripe:sync-plan-prices run moves it later.
+            Log::warning('Could not move a new subscription to the current price', [
+                'subscription_id' => $subscription->id, 'message' => $e->getMessage(),
+            ]);
+        }
     }
 
     private function cancelOnStripe(string $stripeSubscriptionId): void

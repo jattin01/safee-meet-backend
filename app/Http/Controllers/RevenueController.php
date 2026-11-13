@@ -11,6 +11,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Stripe\Exception\ApiConnectionException;
 
 class RevenueController extends Controller
 {
@@ -89,6 +90,18 @@ class RevenueController extends Controller
             ]);
         } catch (\InvalidArgumentException $e) {
             return back()->with('error', $e->getMessage());
+        } catch (ApiConnectionException $e) {
+            // No answer from Stripe: the refund may or may not have happened.
+            // If it did, the charge.refunded webhook records it shortly; a
+            // retry of the same amount reuses the idempotency key, so it can
+            // never refund twice.
+            report($e);
+            $audit->log('payment.refund_unknown', $payment, $before, [
+                'amount' => $validated['amount'], 'reason' => $validated['reason'], 'note' => $validated['note'], 'error' => $e->getMessage(),
+            ]);
+
+            return back()->with('error', 'No answer from Stripe, so the refund may or may not have gone through. '
+                .'Check this payment again in a minute; retrying the same amount is safe and will not refund twice.');
         } catch (\Throwable $e) {
             report($e);
             $audit->log('payment.refund_failed', $payment, $before, [

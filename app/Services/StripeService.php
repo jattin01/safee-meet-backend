@@ -136,6 +136,7 @@ class StripeService
         ?string $paymentMethodId,
         array $metadata = [],
         int $discountCents = 0,
+        ?string $idempotencyKey = null,
     ): StripeSubscription {
         if ($paymentMethodId) {
             // Stripe test tokens (e.g. pm_card_visa) alias to a different,
@@ -169,11 +170,53 @@ class StripeService
                 'currency' => $price->currency,
                 'duration' => 'once',
                 'max_redemptions' => 1,
-            ]);
+            ], $idempotencyKey ? ['idempotency_key' => $idempotencyKey.'-coupon'] : []);
             $params['discounts'] = [['coupon' => $coupon->id]];
         }
 
-        return $this->client->subscriptions->create($params);
+        // The key makes a network-level retry of this same request (a
+        // timeout after Stripe already created it) return that subscription
+        // instead of creating a second one.
+        $subscription = $this->client->subscriptions->create($params, $idempotencyKey ? ['idempotency_key' => $idempotencyKey] : []);
+
+        // Within Stripe's 24h key window the same key can hand back a
+        // checkout that has since been cancelled; start a fresh one then.
+        if ($idempotencyKey && ! in_array($subscription->status, ['incomplete', 'active', 'trialing'], true)) {
+            $subscription = $this->client->subscriptions->create($params, ['idempotency_key' => $idempotencyKey.'-'.bin2hex(random_bytes(4))]);
+        }
+
+        return $subscription;
+    }
+
+    /**
+     * An unpaid checkout of this user's that matches the one being started
+     * (same plan, cycle, price, coupon and card) and can still be paid:
+     * returned instead of creating a duplicate when the app retries, e.g.
+     * after a timeout. Comes with latest_invoice.confirmation_secret.
+     */
+    public function reusableIncompleteSubscription(Customer $customer, string $priceId, array $metadata): ?StripeSubscription
+    {
+        $pending = $this->client->subscriptions->all([
+            'customer' => $customer->id,
+            'status' => 'incomplete',
+            'limit' => 10,
+            'expand' => ['data.latest_invoice.confirmation_secret'],
+        ]);
+
+        $wanted = array_map('strval', array_filter($metadata, fn ($value) => $value !== null));
+
+        foreach ($pending->data as $subscription) {
+            $have = array_map('strval', $subscription->metadata?->toArray() ?? []);
+            $item = $subscription->items->data[0] ?? null;
+
+            if ($item && $item->price->id === $priceId
+                && array_intersect_key($have, $wanted) == $wanted && count($have) === count($wanted)
+                && ($subscription->latest_invoice->confirmation_secret->client_secret ?? null)) {
+                return $subscription;
+            }
+        }
+
+        return null;
     }
 
     public function retrieveSubscription(string $stripeSubscriptionId): StripeSubscription
@@ -232,6 +275,12 @@ class StripeService
             'reason' => $reason,
             'metadata' => $metadata,
         ], ['idempotency_key' => $idempotencyKey]);
+    }
+
+    /** The charge as Stripe holds it now (amount_refunded is authoritative). */
+    public function retrieveCharge(string $chargeId): \Stripe\Charge
+    {
+        return $this->client->charges->retrieve($chargeId);
     }
 
     public function cancelSubscription(string $stripeSubscriptionId): StripeSubscription
@@ -313,7 +362,7 @@ class StripeService
         return $cancelled;
     }
 
-    public function cancelIncompleteSubscriptions(Customer $customer): void
+    public function cancelIncompleteSubscriptions(Customer $customer, ?string $exceptId = null): void
     {
         $pending = $this->client->subscriptions->all([
             'customer' => $customer->id,
@@ -321,7 +370,9 @@ class StripeService
         ]);
 
         foreach ($pending->autoPagingIterator() as $subscription) {
-            $this->cancelSubscription($subscription->id);
+            if ($subscription->id !== $exceptId) {
+                $this->cancelSubscription($subscription->id);
+            }
         }
     }
 

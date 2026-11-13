@@ -7,6 +7,7 @@ use App\Models\Payment;
 use App\Models\PaymentWebhookEvent;
 use App\Models\Subscription;
 use App\Models\User;
+use App\Services\AdminAuditLogger;
 use App\Services\PushNotificationService;
 use App\Services\StripeService;
 use App\Services\SubscriptionService;
@@ -92,6 +93,11 @@ class StripeWebhookController extends Controller
 
         case 'charge.refunded':
             $this->handleChargeRefunded($event);
+
+            return response()->json(['message' => 'Webhook processed successfully'], 200);
+
+        case 'charge.refund.updated':
+            $this->handleRefundUpdated($event);
 
             return response()->json(['message' => 'Webhook processed successfully'], 200);
     }
@@ -288,18 +294,89 @@ class StripeWebhookController extends Controller
             return;
         }
 
-        // Shared with the admin panel's refund action; values are set from
-        // Stripe's running total, so the webhook after an admin refund (or a
-        // repeated delivery) changes nothing.
-        $refunded = (int) ($charge->amount_refunded ?? 0);
+        // Shared with the admin panel's refund action. The payload is a
+        // snapshot from when the event was sent, and events can arrive out
+        // of order, so read the charge as Stripe holds it now and record that
+        // exact total. If Stripe can't be reached, fall back to the snapshot,
+        // which may only raise the recorded total, never lower it.
         $paymentIntentId = $charge->payment_intent ?? null;
+        $paymentIntentId = is_string($paymentIntentId) ? $paymentIntentId : ($paymentIntentId->id ?? null);
+        $exact = false;
+
+        try {
+            $fresh = app(StripeService::class)->retrieveCharge($charge->id);
+
+            if (is_object($fresh) && isset($fresh->amount_refunded)) {
+                $charge = $fresh;
+                $exact = true;
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Could not re-read refunded charge; using the event snapshot', [
+                'charge_id' => $charge->id ?? null, 'message' => $e->getMessage(),
+            ]);
+        }
+
+        $refunded = (int) ($charge->amount_refunded ?? 0);
 
         app(SubscriptionService::class)->applyRefund(
             $payment,
             $refunded,
             (bool) ($charge->refunded ?? false) || $refunded >= (int) $payment->amount,
-            is_string($paymentIntentId) ? $paymentIntentId : ($paymentIntentId->id ?? null),
+            $paymentIntentId,
+            $exact,
         );
+    }
+
+    /**
+     * charge.refund.updated: a refund that was pending has failed or been
+     * cancelled, so the money did not go back. Stripe has already lowered
+     * the charge's refunded total; record that exact total. A plan that a
+     * full refund had cancelled stays cancelled (its Stripe subscription is
+     * gone) and is flagged for the team to follow up.
+     */
+    private function handleRefundUpdated($event): void
+    {
+        $refund = $event->data->object;
+
+        if (! in_array($refund->status ?? null, ['failed', 'canceled'], true)) {
+            return;
+        }
+
+        $payment = $this->paymentForCharge($refund);
+        $chargeId = is_string($refund->charge ?? null) ? $refund->charge : ($refund->charge->id ?? null);
+
+        if (! $payment || ! $chargeId) {
+            Log::warning('Failed refund for an unknown payment', ['refund_id' => $refund->id ?? null]);
+
+            return;
+        }
+
+        $before = $payment->only(['status', 'amount_refunded']);
+        $charge = app(StripeService::class)->retrieveCharge($chargeId);
+
+        if (! is_object($charge) || ! isset($charge->amount_refunded)) {
+            // Without Stripe's current total nothing is lowered; Stripe
+            // re-delivers the event, so a later attempt can apply it.
+            throw new \RuntimeException("Could not read charge {$chargeId} for failed refund ".($refund->id ?? ''));
+        }
+
+        $refunded = (int) $charge->amount_refunded;
+
+        app(SubscriptionService::class)->applyRefund($payment, $refunded, (bool) ($charge->refunded ?? false), null, true);
+
+        $payment->refresh();
+        app(AdminAuditLogger::class)->log('payment.refund_reversed', $payment, $before, [
+            'status' => $payment->status,
+            'amount_refunded' => $payment->amount_refunded,
+            'stripe_refund_id' => $refund->id ?? null,
+            'stripe_refund_status' => $refund->status,
+            'failure_reason' => $refund->failure_reason ?? null,
+        ]);
+
+        Log::error('Stripe refund failed; the money was not returned', [
+            'payment_id' => $payment->id, 'refund_id' => $refund->id ?? null, 'failure_reason' => $refund->failure_reason ?? null,
+            'subscription_status' => $payment->subscription?->status,
+        ]);
     }
 
     /**
