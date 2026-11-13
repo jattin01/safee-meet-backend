@@ -43,6 +43,13 @@ class PlanChangePolicy
         $until = $current->renews_at?->format('d M Y');
         $availableFrom = $current->renews_at?->toIso8601String();
 
+        // A free trial is not a plan to switch to later: say so plainly
+        // instead of the downgrade message with a date.
+        if ((int) $target->trial_days > 0) {
+            return $this->result(self::BLOCKED, 'trial_not_available',
+                'The free trial is not available while you have an active paid plan.');
+        }
+
         if ($currentPlan->id === $target->id && $current->billing_cycle === $billingCycle) {
             return $this->result(self::BLOCKED, 'already_on_plan', 'You are already on this plan.', $availableFrom);
         }
