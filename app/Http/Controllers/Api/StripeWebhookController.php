@@ -168,7 +168,7 @@ class StripeWebhookController extends Controller
 
         $stripeSubscriptionId = $this->invoiceSubscriptionId($invoice);
         $subscription = $stripeSubscriptionId
-            ? Subscription::where('stripe_subscription_id', $stripeSubscriptionId)->first()
+            ? Subscription::forStripe($stripeSubscriptionId)
             : null;
 
         if (! $subscription) {
@@ -176,6 +176,27 @@ class StripeWebhookController extends Controller
             // first invoice is paid, so record the failed attempt against
             // the user (no subscription, no access) for the admin reports.
             $this->recordFailedFirstPayment($invoice, $stripeSubscriptionId);
+
+            return;
+        }
+
+        if (($invoice->billing_reason ?? null) === 'subscription_update') {
+            // A prorated upgrade charge was declined or is waiting for 3DS.
+            // Stripe keeps the subscription on the plan already paid for
+            // until it is paid, so access stays exactly as it is.
+            Payment::updateOrCreate(
+                ['stripe_invoice_id' => $invoice->id],
+                array_filter([
+                    'user_id' => $subscription->user_id,
+                    'subscription_id' => $subscription->id,
+                    'amount' => $invoice->amount_due,
+                    'currency' => $invoice->currency,
+                    'status' => 'failed',
+                ], fn ($value) => $value !== null),
+            );
+            Log::info('Upgrade payment failed; current plan unchanged', [
+                'invoice_id' => $invoice->id, 'subscription_id' => $subscription->id,
+            ]);
 
             return;
         }
@@ -417,7 +438,7 @@ class StripeWebhookController extends Controller
     private function handleSubscriptionDeleted($event): void
     {
         $stripeSubscription = $event->data->object;
-        $subscription = Subscription::where('stripe_subscription_id', $stripeSubscription->id)->first();
+        $subscription = Subscription::forStripe($stripeSubscription->id);
 
         // Already closed locally — e.g. replaced by an upgrade, which is what
         // cancelled it on Stripe in the first place.

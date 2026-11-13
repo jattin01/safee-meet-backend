@@ -64,7 +64,7 @@ class SubscriptionService
             return null;
         }
 
-        [$subscription, $payment, $isFirstPayment] = $this->withLock('invoice:'.$invoice->id, 20, function () use ($invoice, $stripeSubscriptionId) {
+        [$subscription, $payment, $isFirstPayment, $upgradedFrom] = $this->withLock('invoice:'.$invoice->id, 20, function () use ($invoice, $stripeSubscriptionId) {
             // Stripe can deliver an event more than once. An invoice already
             // recorded as paid (or since refunded) is done: re-running it
             // would re-send the purchase mail and could reactivate a refunded
@@ -74,11 +74,21 @@ class SubscriptionService
             if ($recorded && $recorded->status !== 'failed') {
                 Log::info('Paid invoice already recorded; nothing to do', ['invoice_id' => $invoice->id]);
 
-                return [Subscription::where('stripe_subscription_id', $stripeSubscriptionId)->first(), null, false];
+                return [Subscription::forStripe($stripeSubscriptionId), null, false, null];
             }
 
-            $subscription = Subscription::where('stripe_subscription_id', $stripeSubscriptionId)->first();
+            $subscription = Subscription::forStripe($stripeSubscriptionId);
             $isFirstPayment = false;
+            $upgradedFrom = null;
+            $upgrade = null;
+
+            if ($subscription && ! $this->isReplaced($subscription)
+                && ($invoice->billing_reason ?? null) === 'subscription_update') {
+                // A prorated yearly upgrade (or a plan change made in the
+                // Stripe Dashboard) was paid: the plan the subscription is on
+                // now decides; null when it is still the same plan.
+                $upgrade = $this->upgradeTarget($stripeSubscriptionId, $subscription);
+            }
 
             if ($subscription && $this->isReplaced($subscription)) {
                 // Money for a plan the user has since left (cancelled, or
@@ -88,6 +98,20 @@ class SubscriptionService
                     'subscription_id' => $subscription->id, 'invoice_id' => $invoice->id, 'amount' => $invoice->amount_paid,
                 ]);
                 $this->cancelOnStripe($stripeSubscriptionId);
+            } elseif ($upgrade) {
+                // Same Stripe subscription, new local row for the new plan
+                // (fresh feature snapshot); the old row is kept as history.
+                // The renewal date stays where it was.
+                [$plan, $billingCycle, $price] = $upgrade;
+                $upgradedFrom = $subscription;
+                $subscription = $this->activate($subscription->user, $plan, [
+                    'price' => $price,
+                    'billing_cycle' => $billingCycle,
+                    'status' => 'active',
+                    'renews_at' => $this->invoicePeriodEnd($invoice) ?? $upgradedFrom->renews_at,
+                    'stripe_customer_id' => $upgradedFrom->stripe_customer_id,
+                    'stripe_subscription_id' => $stripeSubscriptionId,
+                ]);
             } elseif ($subscription) {
                 // Renewal, or a Stripe retry succeeding after a failed renewal.
                 $subscription->update([
@@ -103,7 +127,7 @@ class SubscriptionService
                 $subscription = $this->activateFromStripe($stripeSubscription, $this->invoicePeriodEnd($invoice));
 
                 if (! $subscription) {
-                    return [null, null, false];
+                    return [null, null, false, null];
                 }
 
                 $isFirstPayment = $subscription->wasRecentlyCreated;
@@ -141,7 +165,7 @@ class SubscriptionService
                 ], fn ($value) => $value !== null),
             );
 
-            return [$subscription, $payment, $isFirstPayment];
+            return [$subscription, $payment, $isFirstPayment, $upgradedFrom];
         });
 
         // Notify only the caller that recorded the payment, after the lock.
@@ -155,10 +179,77 @@ class SubscriptionService
                 );
             }
 
+            if ($upgradedFrom) {
+                $this->afterUpgrade($subscription);
+            }
+
             $this->sendInvoiceMail($subscription, $payment);
         }
 
         return $subscription;
+    }
+
+    /**
+     * The plan a Stripe subscription was moved to by a paid
+     * subscription_update invoice: [plan, billing cycle, price], or null when
+     * it is still on the plan of $current.
+     */
+    private function upgradeTarget(string $stripeSubscriptionId, Subscription $current): ?array
+    {
+        // Not caught: if Stripe can't be read, the webhook fails and Stripe
+        // re-delivers it, rather than the upgrade being recorded as a renewal.
+        $price = app(StripeService::class)->retrieveSubscription($stripeSubscriptionId)->items->data[0]->price ?? null;
+
+        if (! $price) {
+            return null;
+        }
+
+        $billingCycle = ($price->recurring->interval ?? null) === 'year' ? 'yearly' : 'monthly';
+        $planId = $price->metadata['plan_id'] ?? null;
+        $plan = ($planId ? SubscriptionPlan::withTrashed()->find($planId) : null)
+            ?? SubscriptionPlan::withTrashed()
+                ->where($billingCycle === 'yearly' ? 'yearly_stripe_price_id' : 'monthly_stripe_price_id', $price->id)
+                ->first();
+
+        if (! $plan) {
+            Log::error('Paid plan change on Stripe to a price that matches no plan; recorded as a payment only', [
+                'stripe_subscription_id' => $stripeSubscriptionId, 'price_id' => $price->id,
+            ]);
+
+            return null;
+        }
+
+        if ($plan->id === $current->plan_id && $billingCycle === $current->billing_cycle) {
+            return null;
+        }
+
+        return [$plan, $billingCycle, round(((int) $price->unit_amount) / 100, 2)];
+    }
+
+    /** Push + Stripe metadata after a prorated upgrade was applied. */
+    private function afterUpgrade(Subscription $subscription): void
+    {
+        try {
+            app(PushNotificationService::class)->sendToUser(
+                $subscription->user,
+                'Plan upgraded',
+                'Your plan was upgraded to '.($subscription->plan?->name ?? 'your new plan').'.',
+                ['type' => 'subscription_upgraded', 'subscription_id' => (string) $subscription->id],
+            );
+        } catch (\Throwable $e) {
+            Log::warning('Could not send plan-upgraded notification', ['subscription_id' => $subscription->id, 'message' => $e->getMessage()]);
+        }
+
+        // Keeps the Stripe Dashboard showing the plan the user is on.
+        try {
+            app(StripeService::class)->updateSubscriptionMetadata($subscription->stripe_subscription_id, [
+                'plan_id' => (string) $subscription->plan_id,
+                'billing_cycle' => $subscription->billing_cycle,
+                'price' => (string) $subscription->price,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('Could not update Stripe metadata after an upgrade', ['subscription_id' => $subscription->id, 'message' => $e->getMessage()]);
+        }
     }
 
     /**
@@ -286,6 +377,16 @@ class SubscriptionService
             return; // Scenario 3: a later payment covers the current period
         }
 
+        if ($this->isUpgradePayment($subscription, $payment)) {
+            // The charge for a prorated upgrade: the year itself was paid by
+            // the earlier payment, so the plan keeps running.
+            Log::warning('Prorated upgrade payment refunded in full; plan kept running', [
+                'payment_id' => $payment->id, 'subscription_id' => $subscription->id,
+            ]);
+
+            return;
+        }
+
         // Scenario 2: the current period was refunded in full.
         $subscription->update(['status' => 'cancelled', 'cancelled_at' => now()]);
 
@@ -352,6 +453,20 @@ class SubscriptionService
      * A subscription the user has moved off: cancelled, or expired while
      * another plan of theirs is running. A late payment must not revive it.
      */
+    /**
+     * Whether $payment is the prorated-upgrade charge of $subscription: the
+     * row continues an earlier row on the same Stripe subscription, and this
+     * is its only payment (a renewal would be a later one).
+     */
+    private function isUpgradePayment(Subscription $subscription, Payment $payment): bool
+    {
+        return $subscription->stripe_subscription_id
+            && Subscription::where('stripe_subscription_id', $subscription->stripe_subscription_id)
+                ->where('id', '<', $subscription->id)->exists()
+            && ! Payment::where('subscription_id', $subscription->id)->whereKeyNot($payment->getKey())
+                ->whereIn('status', [...Payment::COLLECTED_STATUSES, 'refunded'])->exists();
+    }
+
     private function isReplaced(Subscription $subscription): bool
     {
         if ($subscription->status === 'cancelled') {
@@ -468,8 +583,14 @@ class SubscriptionService
 
             $stripeSubscriptionId = $attributes['stripe_subscription_id'] ?? null;
 
+            // Per plan + cycle: a prorated upgrade adds a second row for the
+            // same Stripe subscription.
             if ($stripeSubscriptionId
-                && $existing = Subscription::where('stripe_subscription_id', $stripeSubscriptionId)->first()) {
+                && $existing = Subscription::where('stripe_subscription_id', $stripeSubscriptionId)
+                    ->where('plan_id', $plan->id)
+                    ->where('billing_cycle', $attributes['billing_cycle'] ?? null)
+                    ->orderByDesc('id')
+                    ->first()) {
                 return $existing;
             }
 

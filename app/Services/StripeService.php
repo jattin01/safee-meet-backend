@@ -515,6 +515,136 @@ class StripeService
     }
 
     /**
+     * Prorated upgrade of a running yearly subscription to $priceId: Stripe
+     * credits the unused part of the current price, charges the new price
+     * for the rest of the period, and invoices the difference right away
+     * (renewal date unchanged). With pending_if_incomplete, a declined or
+     * 3DS-pending charge leaves the subscription on its current price until
+     * the invoice is paid, so the plan already paid for is never lost.
+     *
+     * A retry of the same pending upgrade resumes its open invoice; any
+     * other open upgrade invoice is voided first so it can never be paid
+     * (or retried by Stripe) later. Returned with latest_invoice expanded
+     * (confirmation_secret included).
+     *
+     * @throws \DomainException when the subscription is not active on Stripe
+     */
+    public function upgradeSubscription(string $stripeSubscriptionId, string $priceId, ?string $paymentMethodId): StripeSubscription
+    {
+        $expand = ['latest_invoice.confirmation_secret'];
+        $subscription = $this->client->subscriptions->retrieve($stripeSubscriptionId, ['expand' => $expand]);
+
+        if ($subscription->status !== 'active') {
+            throw new \DomainException("Stripe subscription {$stripeSubscriptionId} is {$subscription->status}");
+        }
+
+        if ($paymentMethodId) {
+            $customerId = is_string($subscription->customer) ? $subscription->customer : $subscription->customer->id;
+            $attached = $this->client->paymentMethods->attach($paymentMethodId, ['customer' => $customerId]);
+            $this->client->customers->update($customerId, [
+                'invoice_settings' => ['default_payment_method' => $attached->id],
+            ]);
+
+            // A card set on the subscription itself would win over the
+            // customer's default; point it at the new card too.
+            if ($subscription->default_payment_method) {
+                $this->client->subscriptions->update($stripeSubscriptionId, ['default_payment_method' => $attached->id]);
+            }
+        }
+
+        $item = $subscription->items->data[0];
+        $pendingPrice = $subscription->pending_update?->subscription_items[0]?->price?->id ?? null;
+        $invoice = $subscription->latest_invoice;
+
+        if ($pendingPrice === $priceId && is_object($invoice) && $invoice->status === 'open'
+            && ($invoice->confirmation_secret->client_secret ?? null)) {
+            return $subscription; // same upgrade still waiting for payment
+        }
+
+        if (! $subscription->pending_update && $item->price->id === $priceId) {
+            return $subscription; // already upgraded on Stripe
+        }
+
+        $this->voidOpenUpgradeInvoices($stripeSubscriptionId);
+
+        $before = is_object($invoice) ? $invoice->id : (string) $invoice;
+
+        return $this->client->subscriptions->update($stripeSubscriptionId, [
+            'items' => [['id' => $item->id, 'price' => $priceId]],
+            'proration_behavior' => 'always_invoice',
+            'payment_behavior' => 'pending_if_incomplete',
+            'expand' => $expand,
+        ], ['idempotency_key' => "upgrade-{$stripeSubscriptionId}-{$priceId}-{$before}"]);
+    }
+
+    /**
+     * What a prorated upgrade to $priceId would charge now, without
+     * changing anything. Returns [amount due in cents, currency].
+     *
+     * @return array{0: int, 1: string}
+     */
+    public function previewUpgrade(string $stripeSubscriptionId, string $priceId): array
+    {
+        $subscription = $this->client->subscriptions->retrieve($stripeSubscriptionId);
+
+        $preview = $this->client->invoices->createPreview([
+            'subscription' => $stripeSubscriptionId,
+            'subscription_details' => [
+                'items' => [['id' => $subscription->items->data[0]->id, 'price' => $priceId]],
+                'proration_behavior' => 'always_invoice',
+                'proration_date' => time(),
+            ],
+        ]);
+
+        return [(int) $preview->amount_due, (string) $preview->currency];
+    }
+
+    /** Voids this subscription's unpaid upgrade invoices. Returns the ids voided. */
+    public function voidOpenUpgradeInvoices(string $stripeSubscriptionId): array
+    {
+        $voided = [];
+        $open = $this->client->invoices->all(['subscription' => $stripeSubscriptionId, 'status' => 'open', 'limit' => 20]);
+
+        foreach ($open->data as $invoice) {
+            if ($invoice->billing_reason === 'subscription_update') {
+                $this->client->invoices->voidInvoice($invoice->id);
+                $voided[] = $invoice->id;
+            }
+        }
+
+        if ($voided) {
+            Log::info('Voided unpaid upgrade invoices', ['stripe_subscription_id' => $stripeSubscriptionId, 'invoices' => $voided]);
+        }
+
+        return $voided;
+    }
+
+    /**
+     * Invoices with $status created since $since, for the reconcile command.
+     *
+     * @return iterable<\Stripe\Invoice>
+     */
+    public function recentInvoices(\DateTimeInterface $since, string $status): iterable
+    {
+        return $this->client->invoices->all([
+            'status' => $status,
+            'created' => ['gte' => $since->getTimestamp()],
+            'limit' => 100,
+        ])->autoPagingIterator();
+    }
+
+    public function voidInvoice(string $invoiceId): void
+    {
+        $this->client->invoices->voidInvoice($invoiceId);
+    }
+
+    /** Keeps the Stripe subscription's metadata describing the plan it is on. */
+    public function updateSubscriptionMetadata(string $stripeSubscriptionId, array $metadata): void
+    {
+        $this->client->subscriptions->update($stripeSubscriptionId, ['metadata' => $metadata]);
+    }
+
+    /**
      * Whether a Price charges exactly what the app shows for this cycle:
      * active, same amount and currency, recurring every 1 month / 1 year.
      */

@@ -7,6 +7,7 @@ use App\Models\Coupon;
 use App\Models\Feature;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
+use App\Services\PlanChangePolicy;
 use App\Services\StripeService;
 use App\Services\SubscriptionService;
 use Illuminate\Contracts\Cache\LockTimeoutException;
@@ -43,7 +44,20 @@ class SubscriptionController extends Controller
             ->with('comparisonFeatures:id,slug,name,type')
             ->get();
 
-        $plans->each(function (SubscriptionPlan $plan) {
+        // What the signed-in user may do with each plan right now, so the app
+        // can disable a button instead of letting the purchase fail.
+        $current = $request->user()?->activeSubscription()->with('plan')->first();
+        $policy = app(PlanChangePolicy::class);
+
+        $plans->each(function (SubscriptionPlan $plan) use ($request, $current, $policy) {
+            if ($request->user()) {
+                $plan->plan_change = collect(['monthly', 'yearly'])->mapWithKeys(function ($cycle) use ($current, $policy, $plan) {
+                    $change = $policy->decide($current, $plan, $cycle);
+
+                    return [$cycle => ['allowed' => $change['type'] !== PlanChangePolicy::BLOCKED] + $change];
+                })->all();
+            }
+
             // Enrich the free-text `features` list with each matching row's
             // id/slug from the features table (matched by name), so the
             // client can link back to the catalog instead of just showing text.
@@ -320,6 +334,14 @@ class SubscriptionController extends Controller
             ], 422);
         }
 
+        // Plan-change rules (downgrade / same plan / yearly upgrade).
+        $current = $user->activeSubscription()->with('plan')->first();
+        $change = app(PlanChangePolicy::class)->decide($current, $plan, $validated['billing_cycle']);
+
+        if ($change['type'] === PlanChangePolicy::BLOCKED) {
+            return $this->planChangeBlocked($change);
+        }
+
         $appliedCoupon = null;
         $couponDiscount = 0.0;
 
@@ -350,6 +372,14 @@ class SubscriptionController extends Controller
         }
 
         $needsStripe = ! $isTrial && $price > 0;
+        $prorated = $needsStripe && $change['type'] === PlanChangePolicy::PRORATED_UPGRADE;
+
+        if ($prorated && $appliedCoupon) {
+            return response()->json([
+                'message' => 'Coupons cannot be used for a plan upgrade.',
+                'code' => 'coupon_not_allowed_for_upgrade',
+            ], 422);
+        }
 
         /*
         |--------------------------------------------------------------------------
@@ -383,7 +413,9 @@ class SubscriptionController extends Controller
         | subscription, which is cancelled on the next attempt (or expires).
         */
 
-        if (empty($validated['stripe_payment_method_id'])) {
+        // A prorated upgrade charges the card already on file unless a new
+        // one is given.
+        if (! $prorated && empty($validated['stripe_payment_method_id'])) {
             return response()->json([
                 'message' => 'A payment method is required for this plan.',
             ], 422);
@@ -401,9 +433,11 @@ class SubscriptionController extends Controller
         try {
             // One checkout per user at a time (double tap, two devices): the
             // second request waits, then sees the first one's result.
-            return $this->subscriptions->withLock('checkout:user:'.$user->id, 15, fn () => $this->startPaidCheckout(
-                $user, $plan, $validated['billing_cycle'], $validated['stripe_payment_method_id'], $price, $metadata, $couponDiscount,
-            ));
+            return $this->subscriptions->withLock('checkout:user:'.$user->id, 15, fn () => $prorated
+                ? $this->startProratedUpgrade($user, $plan, $validated['stripe_payment_method_id'] ?? null)
+                : $this->startPaidCheckout(
+                    $user, $plan, $validated['billing_cycle'], $validated['stripe_payment_method_id'], $price, $metadata, $couponDiscount,
+                ));
         } catch (LockTimeoutException) {
             return response()->json([
                 'message' => 'Another purchase is already in progress. Please wait a moment and check your plan.',
@@ -433,6 +467,169 @@ class SubscriptionController extends Controller
                 'code' => 'payment_error',
             ], 502);
         }
+    }
+
+    /**
+     * Yearly -> higher yearly plan, run under the user's checkout lock. The
+     * same Stripe subscription moves to the new plan's price with proration:
+     * only the difference for the rest of the year is charged now and the
+     * renewal date stays. If the charge goes through right away the plan is
+     * switched here; if it needs 3DS (or was declined) the app confirms the
+     * returned client secret, the user stays on the current plan meanwhile,
+     * and invoice.paid switches it once paid.
+     */
+    private function startProratedUpgrade(User $user, SubscriptionPlan $plan, ?string $paymentMethodId): JsonResponse
+    {
+        // Re-read under the lock: a parallel request may have upgraded already.
+        $current = $user->activeSubscription()->with('plan')->first();
+        $change = app(PlanChangePolicy::class)->decide($current, $plan, 'yearly');
+
+        if ($change['type'] === PlanChangePolicy::BLOCKED) {
+            return $this->planChangeBlocked($change);
+        }
+
+        $this->stripe->syncPlanPrice($plan, 'yearly');
+        $priceId = $this->stripe->resolvePriceId($plan, 'yearly');
+
+        if (! $priceId) {
+            return response()->json([
+                'message' => "Plan '{$plan->slug}' has no Stripe price configured for yearly billing.",
+            ], 422);
+        }
+
+        try {
+            $stripeSubscription = $this->stripe->upgradeSubscription($current->stripe_subscription_id, $priceId, $paymentMethodId);
+        } catch (\DomainException $e) {
+            Log::warning('Upgrade refused: Stripe subscription not active', ['user_id' => $user->id, 'message' => $e->getMessage()]);
+
+            return response()->json([
+                'message' => 'Your current plan cannot be upgraded right now. Please try again later or contact support.',
+                'code' => 'upgrade_not_possible',
+            ], 409);
+        }
+
+        $invoice = $stripeSubscription->latest_invoice;
+
+        if (is_object($invoice) && $invoice->status === 'paid') {
+            // Charged off-session right away: switch now, without waiting
+            // for the webhook (which then finds it already recorded).
+            $this->subscriptions->applyPaidInvoice($invoice);
+            $upgraded = $user->activeSubscription()->with('plan')->first();
+
+            return response()->json([
+                'message' => 'Your plan has been upgraded.',
+                'code' => 'upgraded',
+                'change_type' => PlanChangePolicy::PRORATED_UPGRADE,
+                'amount_charged' => number_format(((int) $invoice->amount_paid) / 100, 2, '.', ''),
+                'subscription' => $upgraded?->toArray(),
+            ], 200);
+        }
+
+        $clientSecret = is_object($invoice) ? ($invoice->confirmation_secret->client_secret ?? null) : null;
+
+        if (! $clientSecret || $invoice->status !== 'open') {
+            Log::error('Upgrade left no payable invoice', [
+                'user_id' => $user->id, 'stripe_subscription_id' => $stripeSubscription->id,
+                'invoice_status' => is_object($invoice) ? $invoice->status : null,
+            ]);
+
+            return response()->json([
+                'message' => 'We could not start the upgrade payment. Please try again.',
+                'code' => 'payment_error',
+            ], 502);
+        }
+
+        // Same shape as a new checkout, so the app confirms it the same way.
+        return response()->json([
+            'user_id' => $user->id,
+            'plan_id' => $plan->id,
+            'price' => number_format((float) $plan->yearly_price, 2, '.', ''),
+            'billing_cycle' => 'yearly',
+            'status' => 'incomplete',
+            'change_type' => PlanChangePolicy::PRORATED_UPGRADE,
+            'amount_due' => number_format(((int) $invoice->amount_due) / 100, 2, '.', ''),
+            'stripe_customer_id' => $current->stripe_customer_id,
+            'stripe_subscription_id' => $stripeSubscription->id,
+            'plan' => $plan->withoutRelations()->toArray(),
+            'payment_intent_client_secret' => $clientSecret,
+            'payment_intent_status' => 'incomplete',
+            'stripe_subscription_status' => $stripeSubscription->status,
+            'invoice_status' => $invoice->status,
+        ], 201);
+    }
+
+    /**
+     * GET /api/subscriptions/change-preview?plan_slug=&billing_cycle= — what
+     * buying this plan would charge now. Prorated yearly upgrades are priced
+     * by Stripe; a new checkout is the full price, and the days left on the
+     * current plan (not carried over) are returned for the app's warning.
+     */
+    public function changePreview(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'plan_slug' => ['required', 'string', Rule::exists('subscription_plans', 'slug')->where('is_active', true)],
+            'billing_cycle' => ['required', Rule::in(['monthly', 'yearly'])],
+        ]);
+
+        $user = $request->user();
+        $plan = SubscriptionPlan::where('slug', $validated['plan_slug'])->firstOrFail();
+        $current = $user->activeSubscription()->with('plan')->first();
+        $policy = app(PlanChangePolicy::class);
+        $change = $policy->decide($current, $plan, $validated['billing_cycle']);
+
+        if ($change['type'] === PlanChangePolicy::BLOCKED) {
+            return $this->planChangeBlocked($change);
+        }
+
+        $price = (float) ($validated['billing_cycle'] === 'yearly' ? $plan->yearly_price : $plan->monthly_price);
+
+        if ($change['type'] === PlanChangePolicy::PRORATED_UPGRADE) {
+            try {
+                $this->stripe->syncPlanPrice($plan, 'yearly');
+                [$amountDue, $currency] = $this->stripe->previewUpgrade(
+                    $current->stripe_subscription_id, $this->stripe->resolvePriceId($plan, 'yearly'),
+                );
+            } catch (ApiErrorException $e) {
+                report($e);
+
+                return response()->json([
+                    'message' => 'We could not calculate the upgrade price right now. Please try again.',
+                    'code' => 'payment_service_unavailable',
+                ], 503);
+            }
+
+            return response()->json([
+                'change_type' => $change['type'],
+                'plan_price' => number_format($price, 2, '.', ''),
+                'amount_due_now' => number_format($amountDue / 100, 2, '.', ''),
+                'currency' => $currency,
+                'renews_at' => $current->renews_at?->toIso8601String(),
+                'unused_days_lost' => 0,
+            ]);
+        }
+
+        $isTrial = (int) $plan->trial_days > 0;
+        $paidRunning = $current && $current->status === 'active' && (float) $current->price > 0;
+
+        return response()->json([
+            'change_type' => $change['type'],
+            'plan_price' => number_format($price, 2, '.', ''),
+            'amount_due_now' => number_format($isTrial ? 0 : $price, 2, '.', ''),
+            'currency' => 'usd',
+            'renews_at' => null,
+            // The current paid plan ends now; its remaining days are not
+            // carried over.
+            'unused_days_lost' => $paidRunning ? $policy->unusedDays($current) : 0,
+        ]);
+    }
+
+    private function planChangeBlocked(array $change): JsonResponse
+    {
+        return response()->json([
+            'message' => $change['message'],
+            'code' => $change['code'],
+            'available_from' => $change['available_from'],
+        ], 422);
     }
 
     /**

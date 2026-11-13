@@ -74,6 +74,21 @@ class Subscription extends Model
         return $this->hasOne(UserSubscription::class, 'subscription_id', 'subscription_id');
     }
 
+    /**
+     * The local row a Stripe subscription currently stands for. A prorated
+     * yearly upgrade keeps the same Stripe subscription and adds a new local
+     * row for the new plan (the old one is kept as history), so one Stripe
+     * id can have several rows; the latest one is the current one.
+     */
+    public static function forStripe(?string $stripeSubscriptionId): ?self
+    {
+        if (! $stripeSubscriptionId) {
+            return null;
+        }
+
+        return static::where('stripe_subscription_id', $stripeSubscriptionId)->orderByDesc('id')->first();
+    }
+
     public function scopeActive($query)
     {
         return $query->whereIn('status', ['trial', 'active']);
