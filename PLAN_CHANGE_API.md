@@ -25,6 +25,7 @@ How the backend handles upgrades, downgrades and plan previews. Every sample bel
 | Yearly | A lower plan, or the same plan monthly | `422 downgrade_not_allowed` |
 | Any | The same plan and the same cycle | `422 already_on_plan` |
 | Monthly or yearly (paid) | The free-trial plan | `422 trial_not_available` (`available_from` is `null`) |
+| Has ever had any plan (a trial or a paid one, running or ended) | The free-trial plan | `422 trial_not_available`. The free trial is for first-time users only. |
 
 Plans are ranked by `sort_order`.
 
@@ -195,13 +196,25 @@ Returned by both `subscribe` and `change-preview`:
 | `downgrade_not_allowed` | A lower plan, or yearly → the same plan monthly |
 | `yearly_upgrade_yearly_only` | A yearly user picked a higher **monthly** plan |
 | `already_on_plan` | The same plan and the same cycle |
-| `trial_not_available` | A user on a paid plan picked the free trial. `available_from` is `null`. |
+| `trial_not_available` | The free trial is refused. `available_from` is always `null`. |
 
-Sample for `trial_not_available`:
+The free trial can be taken **once**, and only by a user who has never had any plan. A user who has had a trial or a paid plan before (running or ended) can't take it again. There are two messages:
+
+While a paid plan is running:
 
 ```json
 {
   "message": "The free trial is not available while you have an active paid plan.",
+  "code": "trial_not_available",
+  "available_from": null
+}
+```
+
+Trial already used, or a plan was had before:
+
+```json
+{
+  "message": "The free trial can only be used once.",
   "code": "trial_not_available",
   "available_from": null
 }

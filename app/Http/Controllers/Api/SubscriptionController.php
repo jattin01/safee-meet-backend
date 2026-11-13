@@ -51,8 +51,8 @@ class SubscriptionController extends Controller
 
         $plans->each(function (SubscriptionPlan $plan) use ($request, $current, $policy) {
             if ($request->user()) {
-                $plan->plan_change = collect(['monthly', 'yearly'])->mapWithKeys(function ($cycle) use ($current, $policy, $plan) {
-                    $change = $policy->decide($current, $plan, $cycle);
+                $plan->plan_change = collect(['monthly', 'yearly'])->mapWithKeys(function ($cycle) use ($request, $current, $policy, $plan) {
+                    $change = $policy->decide($current, $plan, $cycle, $request->user());
 
                     return [$cycle => ['allowed' => $change['type'] !== PlanChangePolicy::BLOCKED] + $change];
                 })->all();
@@ -336,7 +336,7 @@ class SubscriptionController extends Controller
 
         // Plan-change rules (downgrade / same plan / yearly upgrade).
         $current = $user->activeSubscription()->with('plan')->first();
-        $change = app(PlanChangePolicy::class)->decide($current, $plan, $validated['billing_cycle']);
+        $change = app(PlanChangePolicy::class)->decide($current, $plan, $validated['billing_cycle'], $user);
 
         if ($change['type'] === PlanChangePolicy::BLOCKED) {
             return $this->planChangeBlocked($change);
@@ -388,18 +388,37 @@ class SubscriptionController extends Controller
         */
 
         if (! $needsStripe) {
-            $subscription = $this->subscriptions->activate($user, $plan, [
-                'price' => $price,
-                'billing_cycle' => $validated['billing_cycle'],
-                'status' => $isTrial ? 'trial' : 'active',
-                'renews_at' => match (true) {
-                    $isTrial => now()->addDays($plan->trial_days),
-                    $isYearly => now()->addYear(),
-                    default => now()->addMonth(),
-                },
-            ], $appliedCoupon, $couponDiscount);
+            try {
+                // Under the user's checkout lock, re-checked: a double tap
+                // must not start the one-time free trial twice.
+                return $this->subscriptions->withLock('checkout:user:'.$user->id, 15, function () use ($user, $plan, $validated, $isTrial, $isYearly, $price, $appliedCoupon, $couponDiscount) {
+                    $change = app(PlanChangePolicy::class)->decide(
+                        $user->activeSubscription()->with('plan')->first(), $plan, $validated['billing_cycle'], $user,
+                    );
 
-            return response()->json($subscription->load('plan')->toArray(), 201);
+                    if ($change['type'] === PlanChangePolicy::BLOCKED) {
+                        return $this->planChangeBlocked($change);
+                    }
+
+                    $subscription = $this->subscriptions->activate($user, $plan, [
+                        'price' => $price,
+                        'billing_cycle' => $validated['billing_cycle'],
+                        'status' => $isTrial ? 'trial' : 'active',
+                        'renews_at' => match (true) {
+                            $isTrial => now()->addDays($plan->trial_days),
+                            $isYearly => now()->addYear(),
+                            default => now()->addMonth(),
+                        },
+                    ], $appliedCoupon, $couponDiscount);
+
+                    return response()->json($subscription->load('plan')->toArray(), 201);
+                });
+            } catch (LockTimeoutException) {
+                return response()->json([
+                    'message' => 'Another purchase is already in progress. Please wait a moment and check your plan.',
+                    'code' => 'checkout_in_progress',
+                ], 409);
+            }
         }
 
         /*
@@ -482,7 +501,7 @@ class SubscriptionController extends Controller
     {
         // Re-read under the lock: a parallel request may have upgraded already.
         $current = $user->activeSubscription()->with('plan')->first();
-        $change = app(PlanChangePolicy::class)->decide($current, $plan, 'yearly');
+        $change = app(PlanChangePolicy::class)->decide($current, $plan, 'yearly', $user);
 
         if ($change['type'] === PlanChangePolicy::BLOCKED) {
             return $this->planChangeBlocked($change);
@@ -575,7 +594,7 @@ class SubscriptionController extends Controller
         $plan = SubscriptionPlan::where('slug', $validated['plan_slug'])->firstOrFail();
         $current = $user->activeSubscription()->with('plan')->first();
         $policy = app(PlanChangePolicy::class);
-        $change = $policy->decide($current, $plan, $validated['billing_cycle']);
+        $change = $policy->decide($current, $plan, $validated['billing_cycle'], $user);
 
         if ($change['type'] === PlanChangePolicy::BLOCKED) {
             return $this->planChangeBlocked($change);

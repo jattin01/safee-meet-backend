@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
+use App\Models\User;
 
 /**
  * Which plan changes a user on a running paid plan may make (decided rules):
@@ -17,7 +18,12 @@ use App\Models\SubscriptionPlan;
  *   until the year ends.
  * - The same plan and cycle again is refused.
  *
- * Users on a trial, a free plan, or no running plan may pick any plan.
+ * The free trial is for first-time users only: never while a paid plan
+ * is running, and never again once the user has had any plan (a trial or
+ * a paid one).
+ *
+ * Otherwise users on a trial, a free plan, or no running plan may pick any
+ * plan.
  * Plans are ranked by sort_order, then monthly price.
  */
 class PlanChangePolicy
@@ -31,9 +37,13 @@ class PlanChangePolicy
     /**
      * @return array{type: string, code: ?string, message: ?string, available_from: ?string}
      */
-    public function decide(?Subscription $current, SubscriptionPlan $target, string $billingCycle): array
+    public function decide(?Subscription $current, SubscriptionPlan $target, string $billingCycle, ?User $user = null): array
     {
         $currentPlan = $current?->plan;
+
+        if ((int) $target->trial_days > 0 && ! $this->isRunningPaid($current) && $user && $this->hasHadPlan($user)) {
+            return $this->result(self::BLOCKED, 'trial_not_available', 'The free trial can only be used once.');
+        }
 
         if (! $current || ! $currentPlan || $current->status !== 'active' || (float) $current->price <= 0
             || ($current->renews_at && $current->renews_at->isPast())) {
@@ -87,6 +97,24 @@ class PlanChangePolicy
         }
 
         return (int) ceil(now()->diffInSeconds($current->renews_at) / 86400);
+    }
+
+    /**
+     * Whether the user has ever had a plan: a trial or a paid plan, running
+     * or ended (soft-deleted rows too). Unpaid checkout attempts don't count.
+     */
+    public function hasHadPlan(User $user): bool
+    {
+        return Subscription::withTrashed()
+            ->where('user_id', $user->id)
+            ->where('status', '!=', 'incomplete')
+            ->exists();
+    }
+
+    private function isRunningPaid(?Subscription $current): bool
+    {
+        return $current && $current->plan && $current->status === 'active' && (float) $current->price > 0
+            && ! ($current->renews_at && $current->renews_at->isPast());
     }
 
     private function downgrade(?string $until, ?string $availableFrom): array
