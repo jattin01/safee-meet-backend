@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\Sos\SendSosAlertSms;
 use App\Models\Incident;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -41,7 +42,16 @@ class SosController extends Controller
             abort_unless($meeting, 403, 'Not a participant in this meeting');
         }
 
-        $contacts = $user->emergencyContacts()->get(['full_name', 'phone_number']);
+        // Each contact carries its SMS delivery result (pending → sent/failed).
+        $contacts = $user->emergencyContacts()
+            ->get(['full_name', 'phone_number'])
+            ->map(fn ($contact) => [
+                'full_name' => $contact->full_name,
+                'phone_number' => $contact->phone_number,
+                'sms_status' => 'pending',
+            ])
+            ->values()
+            ->all();
 
         $incident = Incident::create([
             'reporter_user_id' => $user->id,
@@ -57,10 +67,18 @@ class SosController extends Controller
             $meeting->update(['status' => 'incident_reported']);
         }
 
-        // TODO: integrate real SMS/push notification dispatch to trusted contacts here.
+        if ($contacts !== []) {
+            // On the sync driver, send after the response so the person in
+            // danger is not kept waiting on the SMS provider. A real queue
+            // worker sends it right away and retries failed contacts.
+            $job = new SendSosAlertSms($incident->id);
+            config('queue.default') === 'sync'
+                ? dispatch($job)->afterResponse()
+                : dispatch($job);
+        }
+
         // TODO (SOW "Future"): Law Enforcement Integration hook goes here once available.
-        // foreach ($contacts as $contact) { app(NotificationService::class)->sendSos($contact, $incident); }
-        
+
         $todaySosCount = Incident::where('reporter_user_id', $user->id)
             ->where('type', 'sos')
             ->whereDate('created_at', today())
@@ -79,7 +97,10 @@ class SosController extends Controller
         } 
 
         return response()->json([
-            'message' => 'Emergency SOS activated. Trusted contacts are being notified.',
+            'message' => $contacts === []
+                ? 'Emergency SOS activated. You have no emergency contacts to notify.'
+                : 'Emergency SOS activated. Your emergency contacts are being notified by SMS.',
+            'contactsNotified' => count($contacts),
             'incident' => $incident,
         ], 201);
     }

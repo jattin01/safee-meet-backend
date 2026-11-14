@@ -81,6 +81,12 @@ return [
         'from_number' => env('TELNYX_FROM_NUMBER'),
     ],
 
+    'sms' => [
+        // Country (IN or US) assumed for a 10-digit number that fits both
+        // and whose owner has no registered phone to take the country from.
+        'default_country' => env('SMS_DEFAULT_COUNTRY', 'IN'),
+    ],
+
     'signzy' => [
         'enabled' => env('SIGNZY_ENABLED', env('SEARCHBUG_ENABLED', false)),
         // Confirmed via Signzy API response: dob must be YYYY-MM-DD (ISO 8601), not m/d/Y.

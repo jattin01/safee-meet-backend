@@ -3,10 +3,13 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\Sos\SendSosAlertSms;
 use App\Models\EmergencyContact;
 use App\Services\Sms\TelnyxSmsService;
+use App\Support\Phone\PhoneNumberNormalizer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 class EmergencyContactController extends Controller
@@ -25,9 +28,18 @@ class EmergencyContactController extends Controller
         $user = $request->user();
         $userId = $user->id;
 
+        // The number is stored exactly as typed so the app sees no change.
+        // The country code is only resolved (from the user's registered
+        // phone) when an SMS is sent.
+        $typedNumber = (string) $request->phone_number;
+        $smsNumber = PhoneNumberNormalizer::forSms($typedNumber, $user->phone);
+
+        // The same number typed another way ("098765 43210" vs
+        // "+91 98765 43210") is still a duplicate.
         $exists = EmergencyContact::where('user_id', $userId)
-            ->where('phone_number', $request->phone_number)
-            ->exists();
+            ->pluck('phone_number')
+            ->contains(fn ($saved) => $saved === $typedNumber
+                || ($smsNumber && PhoneNumberNormalizer::forSms((string) $saved, $user->phone) === $smsNumber));
 
         if ($exists) {
             return response()->json([
@@ -40,19 +52,26 @@ class EmergencyContactController extends Controller
             'user_id' => $userId,
             'full_name' => $request->full_name,
             'relationship' => $request->relationship,
-            'phone_number' => $request->phone_number,
+            'phone_number' => $typedNumber,
         ]);
 
         // Let the contact know they were added. Runs after the response is
         // sent so a slow/failed Telnyx call never blocks adding the contact.
-        $userName = $user->name ?: 'A SafeeMeet user';
-        $text = "Hi {$contact->full_name}, {$userName} has added you as their emergency/trusted contact on "
-            . config('app.name', 'SafeeMeet')
-            . ". You may receive alerts if they need help.";
+        if ($smsNumber) {
+            $userName = SendSosAlertSms::personName($user);
+            $text = "Hi {$contact->full_name}, {$userName} has added you as their emergency/trusted contact on "
+                . config('app.name', 'SafeeMeet')
+                . ". You may receive alerts if they need help.";
 
-        dispatch(function () use ($contact, $text) {
-            app(TelnyxSmsService::class)->send($contact->phone_number, $text);
-        })->afterResponse();
+            dispatch(function () use ($smsNumber, $text) {
+                app(TelnyxSmsService::class)->send($smsNumber, $text);
+            })->afterResponse();
+        } else {
+            Log::warning('Emergency contact added with a number SMS cannot reach', [
+                'user_id' => $userId,
+                'contact_id' => $contact->id,
+            ]);
+        }
 
         return response()->json([
             'status' => true,
