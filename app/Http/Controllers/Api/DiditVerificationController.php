@@ -9,6 +9,7 @@ use App\Mail\VerificationRejectedMail;
 use App\Mail\VerificationUnderReviewMail;
 use App\Models\UserVerification;
 use App\Services\SafetyPointService;
+use App\Services\Verification\DiditVerificationImageStorage;
 use App\Services\Verification\UserVerificationLevelService;
 use App\Support\Verification\TrustScoreCalculator;
 use Illuminate\Http\JsonResponse;
@@ -17,9 +18,38 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 
 class DiditVerificationController extends Controller
 {
+    /** Didit statuses that mean the user has not finished submitting. */
+    private const UNSUBMITTED_STATUSES = ['Not Started', 'In Progress', 'Abandoned', 'Expired'];
+
+    /** Didit statuses whose payload carries the user's completed evidence. */
+    private const SUBMITTED_STATUSES = ['In Review', 'Approved', 'Declined'];
+
+    private const IMAGE_FIELDS = [
+        'face_id_image',
+        'national_id_front_image',
+        'national_id_back_image',
+    ];
+
+    /**
+     * Fields that belong to one attempt and must not carry into the next.
+     * Images are not listed: they stay (the selfie is also the profile
+     * photo) until the new attempt is actually submitted.
+     */
+    private const PREVIOUS_ATTEMPT_FIELDS = [
+        'national_id_number',
+        'national_id_country',
+        'rejection_reason',
+        'reviewed_at',
+        'approved_at',
+        'rejected_at',
+        'reviewed_by',
+        'reviewed_by_admin_id',
+    ];
+
     /**
      * Create a Didit verification session for the authenticated user and
      * return the hosted verification URL + session token for the SDK flow.
@@ -27,6 +57,19 @@ class DiditVerificationController extends Controller
     public function start(Request $request): JsonResponse
     {
         $user = $request->user();
+        $existing = UserVerification::where('user_id', $user->id)->first();
+
+        if ($existing?->status === 'approved') {
+            return response()->json([
+                'message' => 'Your identity is already verified.',
+            ], 409);
+        }
+
+        if ($this->isAwaitingDecision($existing)) {
+            return response()->json([
+                'message' => 'Your verification has been submitted and is under review.',
+            ], 409);
+        }
 
         $callback = config('services.didit.callback_url')
             ?: url('/api/webhooks/didit');
@@ -54,23 +97,28 @@ class DiditVerificationController extends Controller
 
         $data = $response->json();
 
+        // Starting a session is not a submission: the user only counts as
+        // submitted once Didit reports "In Review" or a decision. The earlier
+        // attempt's review data is cleared now; its images are replaced when
+        // this attempt is submitted (see handleWebhook).
         $verification = UserVerification::updateOrCreate(
             ['user_id' => $user->id],
             [
                 'provider' => 'didit',
                 'didit_session_id' => $data['session_id'] ?? null,
                 'didit_decision_status' => $data['status'] ?? 'Not Started',
-                'status' => 'pending',
-                'submitted_at' => now(),
+                'status' => 'not_submitted',
+                'submitted_at' => null,
                 'didit_payload' => [
                     'session_id' => $data['session_id'] ?? null,
                     'status' => $data['status'] ?? 'Not Started',
                 ],
+                ...array_fill_keys(self::PREVIOUS_ATTEMPT_FIELDS, null),
             ]
         );
 
         $user->forceFill([
-            'kyc_status' => 'pending',
+            'kyc_status' => 'not_started',
         ])->save();
 
         return response()->json([
@@ -154,6 +202,19 @@ class DiditVerificationController extends Controller
         $wasAlreadyRejected = $verification->status === 'rejected';
         $diditStatus = $payload['status'] ?? $verification->didit_decision_status;
 
+        // Webhooks can arrive out of order. Once Didit has decided, a late
+        // progress or review event must not overwrite that decision.
+        if (($wasAlreadyApproved || $wasAlreadyRejected)
+            && ! in_array($diditStatus, ['Approved', 'Declined'], true)) {
+            Log::info('Ignoring late Didit webhook for a decided verification', [
+                'session_id' => $sessionId,
+                'status' => $diditStatus,
+                'current_status' => $verification->status,
+            ]);
+
+            return response()->json(['message' => 'ok']);
+        }
+
         $verification->fill([
             'didit_decision_status' => $diditStatus,
             'didit_payload' => $payload,
@@ -162,28 +223,65 @@ class DiditVerificationController extends Controller
         match ($diditStatus) {
             'Approved' => $verification->fill([
                 'status' => 'approved',
+                'submitted_at' => $verification->submitted_at ?? now(),
                 'reviewed_at' => now(),
                 'approved_at' => now(),
                 'rejection_reason' => null,
             ]),
             'Declined' => $verification->fill([
                 'status' => 'rejected',
+                'submitted_at' => $verification->submitted_at ?? now(),
                 'reviewed_at' => now(),
                 'rejected_at' => now(),
                 'rejection_reason' => $payload['decision']['reason'] ?? 'Verification declined by Didit.',
             ]),
             'In Review' => $verification->fill([
                 'status' => 'pending',
+                'submitted_at' => $verification->submitted_at ?? now(),
             ]),
-            'In Progress', 'Abandoned', 'Expired' => $verification->fill([
-                'status' => 'pending',
+            // The user has not finished (or dropped out), so nothing counts
+            // as submitted yet.
+            'Not Started', 'In Progress', 'Abandoned', 'Expired' => $verification->fill([
+                'status' => 'not_submitted',
+                'submitted_at' => null,
             ]),
             default => null,
         };
 
+        // The first submitted event of a session replaces the evidence of any
+        // earlier attempt, so a retry with a different document never shows
+        // one attempt's selfie or ID side next to another's.
+        $staleImages = [];
+        $isFirstSubmission = in_array($diditStatus, self::SUBMITTED_STATUSES, true)
+            && ($previousDiditStatus === null || in_array($previousDiditStatus, self::UNSUBMITTED_STATUSES, true));
+
+        if ($isFirstSubmission) {
+            $storage = app(DiditVerificationImageStorage::class);
+
+            foreach (self::IMAGE_FIELDS as $field) {
+                $path = $verification->{$field};
+                if (is_string($path) && $path !== '' && ! $storage->belongsToCurrentSession($verification, $path)) {
+                    $staleImages[] = $path;
+                    $verification->{$field} = null;
+                }
+            }
+        }
+
         $verification->save();
 
-        StoreDiditVerificationImages::dispatch($verification->id)->afterCommit();
+        $this->deleteStoredImages($staleImages, $verification);
+
+        if (in_array($diditStatus, ['Abandoned', 'Expired'], true) && $user = $verification->user) {
+            $user->forceFill(['kyc_status' => 'not_started'])->save();
+        } elseif ($diditStatus === 'In Review' && $user = $verification->user) {
+            $user->forceFill(['kyc_status' => 'pending'])->save();
+        }
+
+        // Only a completed submission carries evidence for this attempt.
+        // Partial images from an unfinished session are never stored.
+        if (in_array($diditStatus, self::SUBMITTED_STATUSES, true)) {
+            StoreDiditVerificationImages::dispatch($verification->id)->afterCommit();
+        }
 
         if ($diditStatus === 'Approved' && ! $wasAlreadyApproved) {
             app(SafetyPointService::class)->addPoints(
@@ -242,6 +340,43 @@ class DiditVerificationController extends Controller
         }
 
         return response()->json(['message' => 'ok']);
+    }
+
+    /**
+     * A verification the user has actually submitted that is still waiting
+     * for a decision: a Didit session in review, or a manual submission.
+     * Starting a new session would overwrite it, so the user must wait.
+     */
+    private function isAwaitingDecision(?UserVerification $verification): bool
+    {
+        if ($verification?->status !== 'pending') {
+            return false;
+        }
+
+        // Rows created before "not_submitted" existed were marked pending as
+        // soon as a session started, so an unfinished Didit session must not
+        // lock the user out of retrying.
+        return $verification->provider !== 'didit'
+            || ! in_array($verification->didit_decision_status, self::UNSUBMITTED_STATUSES, true);
+    }
+
+    /** @param list<string> $paths */
+    private function deleteStoredImages(array $paths, UserVerification $verification): void
+    {
+        if ($paths === []) {
+            return;
+        }
+
+        try {
+            Storage::disk('public')->delete($paths);
+        } catch (\Throwable $exception) {
+            // The verification is already saved; leftover files must not
+            // fail the webhook.
+            Log::warning('Could not delete images from a previous verification attempt', [
+                'verification_id' => $verification->id,
+                'error' => $exception->getMessage(),
+            ]);
+        }
     }
 
     protected function canonicalizePayload(string $rawBody): string

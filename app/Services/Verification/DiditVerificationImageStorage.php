@@ -114,10 +114,19 @@ class DiditVerificationImageStorage
         return null;
     }
 
+    /**
+     * Whether a stored image path was downloaded for the verification's
+     * current Didit session (as opposed to an earlier attempt).
+     */
+    public function belongsToCurrentSession(UserVerification $verification, string $path): bool
+    {
+        return str_contains($path, '/didit/'.$this->storageSession($verification).'/');
+    }
+
     private function alreadyStored(UserVerification $verification, string $field): bool
     {
         $path = $verification->{$field};
-        if (! is_string($path) || ! str_contains($path, '/didit/'.$this->storageSession($verification).'/')) {
+        if (! is_string($path) || ! $this->belongsToCurrentSession($verification, $path)) {
             return false;
         }
 
